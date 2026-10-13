@@ -1,0 +1,11 @@
+# Regenerable: `python3 build/01_fetch.py` rebuilds it in about two minutes.
+data/raw/
+
+.DS_Store
+
+__pycache__/
+*.pyc
+data/interim/
+
+# Local snapshots of earlier builds.
+.backup/

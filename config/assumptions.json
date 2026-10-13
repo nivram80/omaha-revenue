@@ -1,0 +1,251 @@
+{
+  "_": [
+    "Every modelling assumption in the cost side, in one place, so each one can",
+    "be argued with. Values marked ESTIMATE are industry ballparks, not Omaha",
+    "figures; replace them with Omaha bid tabs and CIP unit costs when you have",
+    "them. Everything else is sourced.",
+    "",
+    "The single most consequential switch is capital_liability.enabled. With it",
+    "off, the map shows how property tax is shared out among parcels and the",
+    "citywide net is zero by construction. With it on, the city is collectively",
+    "short by exactly the unfunded renewal figure, and the map shows both",
+    "relative position and the aggregate shortfall. Both are honest; they answer",
+    "different questions."
+  ],
+  "projection": {
+    "_": "Local planar frame in feet, WGS84 radii evaluated at Omaha's latitude. Good to ~0.2% over a 30 km city, i.e. inches on a 70 ft frontage.",
+    "origin_lat": 41.26,
+    "origin_lon": -96.1,
+    "ft_per_deg_lat": 364367,
+    "ft_per_deg_lon": 274911
+  },
+  "general_fund": {
+    "_": [
+      "General Fund facts from the 2026 adopted budget, used to scale GF",
+      "appropriations down to the share property tax actually funds, and to",
+      "assert that the levy_cents rows in budget.csv reconcile to the real levy."
+    ],
+    "total_appropriation": 562783754,
+    "property_tax_revenue": 123425531,
+    "levy_cents": 22.022,
+    "total_levy_cents": 43.994
+  },
+  "frontage": {
+    "_": [
+      "Formulation: a parcel boundary is sampled every sample_ft, and each sample",
+      "is attributed to the nearest street centerline within max_offset_ft for",
+      "that street's class. There is deliberately NO parallelism test: on a",
+      "cul-de-sac bulb the lot lines are radial to the arc and a parallelism",
+      "filter would zero them out \u2014 and west Omaha's cul-de-sacs are exactly the",
+      "parcels whose cost allocation carries the argument.",
+      "max_offset_ft is half the right-of-way plus a setback tolerance.",
+      "",
+      "Cul-de-sacs need their own rule. The centerline stops in the middle of the",
+      "bulb, so every point on a bulb lot's curved front projects onto the same",
+      "spot - the end of the line - and a span along the street measures zero.",
+      "4,857 houses were charged nothing for streets that way. Beyond a dead end",
+      "the model instead measures the angle the lot sweeps around the end of the",
+      "line, times the radius of its front line: the length of its curved",
+      "frontage. bulb_reach_ft is wider than max_offset_ft because a bulb's",
+      "right-of-way radius is wider than half a street.",
+      "bulb_centerline_share prices the bulb's pavement, which the centerline",
+      "does not include: each foot of bulb frontage adds half a foot of street,",
+      "the same ratio as a street with lots on both sides. That keeps cul-de-sac",
+      "lots paying the same per foot as everyone else rather than less."
+    ],
+    "sample_ft": 40,
+    "max_offset_ft": {
+      "Local": 60,
+      "Collector": 72,
+      "Minor Arterial": 88,
+      "Major Arterial": 105
+    },
+    "bulb_reach_ft": 90,
+    "bulb_min_radius_ft": 25,
+    "bulb_centerline_share": 0.5,
+    "dead_end_tolerance_ft": 15,
+    "grid_cell_ft": 300
+  },
+  "demand": {
+    "_": [
+      "Dwelling units: address points are a real unit count for houses, duplexes and",
+      "small multifamily, but NOT for apartment complexes. Two separate problems:",
+      "  (a) DOGIS averages only 2.8 address points across parcels the assessor calls",
+      "      'Multiple Comm', so a 200-unit tower would read as three dwellings.",
+      "  (b) BLDG_SF is the floor area of BUILDING #1 ONLY. 12% of multi-family",
+      "      parcels have more than one building and one has 214 - a 37-acre garden",
+      "      complex was reading as 35 units at $1.6M apiece.",
+      "So multi-family units come from BLDG_SF x NUMBLDGS instead. sf_per_dwelling is",
+      "1250 rather than a true 900 gross sf/unit because NUMBLDGS also counts garages,",
+      "clubhouses and maintenance sheds; the inflated divisor absorbs them. That lands",
+      "at ~212,400 total dwellings against a census count near 216,000, which is the",
+      "check that this is calibrated rather than invented.",
+      "",
+      "Household size is split by tenure. Applying the citywide 2.42 average to",
+      "apartments overstated their population by about 17% and understated",
+      "single-family by about 8% - and since 53% of allocated cost is people-driven,",
+      "that error landed directly on the density comparison.",
+      "Employees are floor area over a per-account-type intensity. Exempt institutions",
+      "are included on purpose: a hospital or university employs thousands and",
+      "generates police, fire and street demand accordingly."
+    ],
+    "target_population": 486051,
+    "employee_service_weight": 0.4,
+    "dwelling": {
+      "sf_per_dwelling": 1250,
+      "single_family_accounts": [
+        "Residential",
+        "Rural Res <=20",
+        "Rural Res >20",
+        "Agricultural>20",
+        "Agriculturl<=20"
+      ],
+      "multi_family_accounts": [
+        "Multiple Comm",
+        "Multiple Res"
+      ],
+      "_": "multi_family units = BLDG_SF x max(NUMBLDGS,1) / sf_per_dwelling"
+    },
+    "sf_per_employee_by_account": {
+      "Commercial": 450,
+      "Industrial": 900,
+      "State Assd RR": 900,
+      "Ex Government": 400,
+      "Ex Educational": 600,
+      "Ex Charitable": 600,
+      "Comm Par Ex Ch": 600,
+      "Ex Religious": 2000,
+      "_default": 700
+    },
+    "household_size_owner": 2.62,
+    "household_size_renter": 2.02,
+    "census_housing_units": 216000
+  },
+  "capital_liability": {
+    "_": [
+      "The renewal cost the city does not budget: replacement cost per foot",
+      "divided by service life. This is the number that turns a value-per-acre map",
+      "into a fiscal argument, and it is also the softest input in the model \u2014 it",
+      "is a straight-line sinking-fund approximation, not a pavement management",
+      "system. already_funded_annual is subtracted before allocation: the Street",
+      "Allocation Fund (fuel tax 63,623,388 + wheel tax 22,959,543, both restricted",
+      "to street work) plus the 2022 Street Preservation Bond appropriation of",
+      "40,000,000, all from the 2026 adopted budget.",
+      "Streets only. Sewer renewal used to be added here too, but sewers are paid",
+      "for by sewer fees, which already_funded_annual never counted - so the whole",
+      "'unfunded' figure was sewer pipe the sewer bills already cover. Sewer now",
+      "has its own two-sided section below."
+    ],
+    "enabled": true,
+    "already_funded_annual": 126582931,
+    "street": {
+      "_": "ESTIMATE \u2014 full-depth reconstruction, Midwest, dollars per centerline foot.",
+      "replace_cost_per_ft": {
+        "Local": 210,
+        "Collector": 330,
+        "Minor Arterial": 520,
+        "Major Arterial": 780
+      },
+      "service_life_years": {
+        "Local": 40,
+        "Collector": 40,
+        "Minor Arterial": 35,
+        "Major Arterial": 35
+      },
+      "network_share": {
+        "_": [
+          "Arterials and collectors carry traffic from across the city, so the",
+          "homes lining one should not pay for all of it. With this enabled, a",
+          "parcel is charged what its frontage would cost as a neighbourhood",
+          "street (local_class), and everything above that - the extra width",
+          "and depth of a through road - is pooled and spread over every foot",
+          "of street frontage in the city. Disable it to charge each road's full",
+          "cost to the parcels that front it."
+        ],
+        "enabled": true,
+        "local_class": "Local"
+      }
+    }
+  },
+  "sewer": {
+    "_": [
+      "Omaha's sewers are an enterprise fund paid by sewer use fees, which M.U.D.",
+      "bills on the City's behalf - not by property tax. So sewer is counted on",
+      "both sides: each parcel's estimated sewer bill is income, and its share of",
+      "the sewer system is cost. The system is assumed to break even citywide",
+      "(fees are set to cover it), so sewer moves money between parcels without",
+      "changing the citywide total.",
+      "",
+      "The cost side has two parts. Pipes along the lot: renewal of the local",
+      "mains under the streets the parcel fronts, split by frontage like streets.",
+      "Everything else - treatment plants, interceptors and other trunk lines,",
+      "mains not under any street, the CSO program, operations - is shared in",
+      "proportion to each parcel's sewer bill, i.e. its flow. Net sewer for a",
+      "parcel is therefore its bill's share of local pipe cost, minus the local",
+      "pipe cost actually in front of it.",
+      "",
+      "Fees use the published 2026 residential rates. Water use per property is",
+      "not public, so it is estimated: usage values are ESTIMATE. M.U.D.'s own",
+      "sample bill assumes 6 CCF a month. Non-residential flow is estimated from",
+      "modelled employees. Multi-family complexes are billed per building, not",
+      "per unit. Storm and sanitary mains are not distinguished in the source",
+      "layer, so both are counted."
+    ],
+    "enabled": true,
+    "fees": {
+      "_": "2026 Omaha sewer use charges, M.U.D. brochure (effective 2026-01-01).",
+      "customer_charge_monthly": 46.34,
+      "flow_charge_per_ccf": 3.958
+    },
+    "usage_ccf_per_month": {
+      "_": "ESTIMATE. 1 CCF = 748 gallons; 1 CCF per employee is ~25 gallons a workday.",
+      "single_family_unit": 6,
+      "multi_family_unit": 4,
+      "per_employee": 1.0
+    },
+    "pipe": {
+      "_": [
+        "ESTIMATE \u2014 open-cut replacement, dollars per foot = base + per_inch x",
+        "diameter. Priced by diameter because LINE_TYPE is not a size: 'Collector'",
+        "mains are 8-inch, the smallest public pipe, while 'Sewer' lines run 15-48",
+        "inches. An earlier per-type table charged the 8-inch mains $400/ft and",
+        "the larger lines $250/ft. default_diameter_in fills missing diameters",
+        "with each type's median. trunk_types carry flow from whole basins, so",
+        "they are shared like treatment rather than charged to the street above."
+      ],
+      "cost_base_per_ft": 100,
+      "cost_per_inch_diameter": 12.5,
+      "service_life_years": 75,
+      "default_diameter_in": {
+        "Collector": 8,
+        "Sewer": 24,
+        "Interceptor": 27,
+        "Outfall": 12,
+        "Force Main": 16,
+        "Siphon": 12,
+        "Diversion Line": 90,
+        "Future Interceptor": 24
+      },
+      "trunk_types": [
+        "Interceptor",
+        "Outfall",
+        "Force Main",
+        "Siphon",
+        "Diversion Line",
+        "Future Interceptor"
+      ]
+    }
+  },
+  "sources": {
+    "budget": "City of Omaha 2026 Adopted Budget (2026_Adopted_Budget_Web.pdf)",
+    "levy_split": "2026 Adopted Budget p.156, Supplemental Notes to Revenue Projections",
+    "household_size": "US Census ACS, City of Omaha average household size",
+    "streets": "DOGIS Street_Centerlines, city-maintained classes only",
+    "sewer": "DOGIS Sewer_Network_Public, OWNER='Omaha', mains only",
+    "sewer_fees": "M.U.D., Omaha 2026 Sewer Use Charges brochure (mudomaha.com)",
+    "sewer_fund": "2026 Adopted Budget: Sewer Revenue Fund is an enterprise fund (PDF p.127); Sewer Use Fee revenue 231,942,542 (PDF p.34)",
+    "address_points": "DOGIS Address_Points, PIN-joined",
+    "population": "US Census 2020, City of Omaha 486,051",
+    "parcel_attrs": "DOGIS Parcels_public (DCAACCTYPE, BLDG_DESC, BLDG_SF)"
+  }
+}

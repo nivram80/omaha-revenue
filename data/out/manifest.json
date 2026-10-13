@@ -1,0 +1,110 @@
+{
+ "tax_year": "2025",
+ "city_levy_per_100": 0.43994,
+ "parcels": 165615,
+ "cells": 103,
+ "vertices": 880885,
+ "bbox_merc": [
+  -10716514.927327909,
+  5040513.086007062,
+  -10672338.370889861,
+  5070496.871339779
+ ],
+ "total_assessed": 55972112447.0,
+ "total_acres": 86829.98694800766,
+ "estimated_city_property_tax": 246243711.49933183,
+ "class_names": {
+  "0": "Unknown",
+  "1": "Residential",
+  "2": "Recreational",
+  "3": "Commercial",
+  "4": "Industrial",
+  "5": "Agricultural",
+  "6": "Other",
+  "7": "Exempt"
+ },
+ "cost_model": {
+  "bases": {
+   "full": {
+    "pots": [
+     "frontage",
+     "people",
+     "flat",
+     "sewer"
+    ],
+    "credit": 1.0,
+    "cost": 407810776.1485542,
+    "tax_revenue": 246243711.53452703,
+    "sewer_revenue": 161403319.6624282,
+    "revenue": 407647031.1969552,
+    "net": -163744.95159900188
+   },
+   "infrastructure": {
+    "pots": [
+     "frontage",
+     "sewer"
+    ],
+    "credit": 0.23604917160933364,
+    "cost": 219567595.64434117,
+    "tax_revenue": 58125624.12173282,
+    "sewer_revenue": 161403319.6624282,
+    "revenue": 219528943.78416103,
+    "net": -38651.86018013954
+   },
+   "services": {
+    "pots": [
+     "people",
+     "flat"
+    ],
+    "credit": 0.7639508283906663,
+    "cost": 188243180.50421304,
+    "tax_revenue": 188118087.4127942,
+    "sewer_revenue": 0.0,
+    "revenue": 188118087.4127942,
+    "net": -125093.09141883254
+   }
+  },
+  "service_groups": {
+   "frontage": 58164275.98191297,
+   "people": 156828283.3665701,
+   "flat": 31414897.137642942
+  },
+  "assessed_total": 55972112455.0,
+  "property_tax": 246243711.53452703,
+  "service_cost": 246407456.486126,
+  "liability_gross": 82830941.1043397,
+  "liability_unfunded": 0.0,
+  "gf_share": 0.21931253367345782,
+  "street_miles_fronted": 2134.152333534268,
+  "street_miles_total": 3195.3464043245813,
+  "buckets": {
+   "people": 145600840.94157276,
+   "frontage": 58164275.98191297,
+   "residents": 11227442.424997333,
+   "parcels": 31414897.137642942
+  },
+  "parcels": 165615,
+  "no_frontage": 3660,
+  "on_bulb": 8961,
+  "frontage_closure": 1.8553696310264995,
+  "network_premium": 22749624.771038763,
+  "network_share_enabled": true,
+  "sewer": {
+   "enabled": true,
+   "fees": 161403319.6624282,
+   "local_pipes": 47094909.588908285,
+   "shared": 114308410.07351992,
+   "trunk_renewal": 10004963.833635086,
+   "unplaced_renewal": 12295581.838138532
+  },
+  "capital_liability_enabled": true
+ },
+ "flags": {
+  "tif": 1,
+  "exempt": 2
+ },
+ "sources": {
+  "parcels": "Nebraska statewide parcel layer (gis.ne.gov)",
+  "levies": "https://revenue.nebraska.gov/sites/default/files/doc/pad/research/valuation/2026/Excel/28Douglas.xlsx"
+ }
+}

@@ -1,0 +1,55 @@
+# City of Omaha 2026 Adopted Budget — cost items and how each is allocated to parcels.
+# Source: 2026_Adopted_Budget_Web.pdf, "2026 Departmental Appropriations — General
+# Fund" (p.171) and "Supplemental Notes to 2026 Revenue Projections" (p.156).
+#
+# COST BASIS. Revenue here is City of Omaha property tax only (the locked scoping
+# decision), so the cost side must match that scope or the comparison is
+# meaningless. Property tax is 21.9% of the General Fund — the rest is sales tax,
+# restaurant tax and fees. Charging the whole $562.8M GF against $246.2M of
+# property tax would put every parcel deep underwater for arithmetic reasons that
+# have nothing to do with land use.
+#
+# So each parcel is charged its share of *what property tax actually buys*:
+#   dollars     rows are General Fund appropriations, scaled by the share of the
+#               GF that property tax funds: 123,425,531 / 562,783,754 = 0.21931
+#   levy_cents  rows are the other three levy funds at their statutory rate,
+#               converted to dollars against the assessed base
+#
+# The 2026 levy is 43.994 cents per $100, split by fund:
+#   General 22.022 · Debt Service 18.772 · Redevelopment 2.600 · Judgment 0.600
+# The levy_cents rows below sum to 21.972, which plus General 22.022 reproduces
+# 43.994 — the same rate joined from the NE DOR table. That identity is asserted
+# in 05_costs.py; if this file is edited so the two disagree, the build fails.
+#
+# ALLOCATORS (parameters live in config/assumptions.json):
+#   frontage   share of adjacent street-segment cost, by measured street frontage
+#   people     residents + employees, employees discounted by service_weight
+#   residents  residents only
+#   acres      parcel area
+#   parcels    flat per parcel
+#
+# The capital replacement liability is NOT here — it is off-budget by definition,
+# which is the whole point of it. See capital_liability in assumptions.json.
+#
+bucket,item,unit,amount,allocator,note
+general,Police,dollars,216264680,people,GF 38.4% — calls for service scale with people present
+general,Fire,dollars,141126827,people,GF 25.1% — suppression and EMS both track population
+general,Public Works,dollars,37586590,frontage,GF 6.7% — street operations
+general,Parks,dollars,28639179,residents,GF 5.1%
+general,Library,dollars,22554623,residents,GF 4.0%
+general,Other Budgetary Accounts - Misc,dollars,39251185,parcels,GF 7.0%
+general,Other Budgetary Accounts - Benefits,dollars,22850048,people,GF 4.1% — tracks headcount of the services above
+general,Planning,dollars,15044169,parcels,GF 2.7% — permitting and zoning are per-property
+general,Other Budgetary Accounts - Debt Service,dollars,12044101,frontage,GF 2.1%
+general,Law,dollars,6864533,parcels,GF 1.2%
+general,Finance,dollars,6294940,parcels,GF 1.1%
+general,Human Resources,dollars,4831321,people,GF 0.9%
+general,Convention and Tourism,dollars,2500000,parcels,GF 0.4%
+general,Mayor's Office,dollars,2480031,parcels,GF 0.4%
+general,Human Rights & Relations,dollars,1858250,parcels,GF 0.3%
+general,City Council,dollars,1646038,parcels,GF 0.3%
+general,City Clerk,dollars,947239,parcels,GF 0.2%
+levy,Debt service — infrastructure bonds,levy_cents,8.447,frontage,45% of the 18.772c debt service levy (street and sewer bonds)
+levy,Debt service — facilities and safety bonds,levy_cents,10.325,people,55% of the 18.772c debt service levy (public safety/facilities/parks bonds)
+levy,Redevelopment levy,levy_cents,2.600,parcels,the full special tax revenue redevelopment levy
+levy,Judgment levy,levy_cents,0.600,people,the full judgment levy
