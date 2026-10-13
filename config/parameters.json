@@ -1,0 +1,259 @@
+{
+  "_": [
+    "What the map's Assumptions panel shows and lets a viewer edit. Values are",
+    "not stored here: each entry points into assumptions.json by a",
+    "'/'-separated path, and the build copies the value it finds there into the",
+    "manifest. This file adds the plain-language label, how the number was",
+    "worked out, and where it came from. Everything listed under groups is",
+    "linear in the cost model, so the browser re-prices every parcel when it is",
+    "edited (src/model.js, a port of build/pricing.py). Values under fixed",
+    "change what is measured, not what it costs, and need a rebuild."
+  ],
+  "sources": {
+    "budget2026": {
+      "title": "City of Omaha 2026 Adopted Budget",
+      "url": "https://web.archive.org/web/20260224042616/https://finance.cityofomaha.org/images/Finance/Budget/2026/2026_Adopted_Budget_Web.pdf"
+    },
+    "pw_streets": {
+      "title": "Public Works street inventory, with lane counts (Douglas-Omaha GIS)",
+      "url": "https://dcgis.org/server/rest/services/Hosted/Streets_For_Public_Works_CCSM/FeatureServer/0"
+    },
+    "bid_183rd": {
+      "title": "183rd & Wright St concrete reconstruction bid, City Council agenda, 21 Apr 2026",
+      "url": "https://clerk.omaha.gov/wp-content/uploads/images/2026-04-21a2.pdf"
+    },
+    "cip_lines": {
+      "title": "2026-2031 Capital Improvement Program project lines, incl. 84th St Harrison to L (Douglas-Omaha GIS)",
+      "url": "https://dcgis.org/server/rest/services/Hosted/PW_CIP_Project_Lines/FeatureServer/0"
+    },
+    "kios_2025": {
+      "title": "KIOS: Omaha to spend nearly $30 million on road and street repair, 26 Feb 2025",
+      "url": "https://www.kios.org/news/2025-02-26/omaha-to-spend-nearly-30-million-on-road-street-repair"
+    },
+    "spb_layer": {
+      "title": "Street Preservation Bond results 2020-2023: $131.6M for 496 lane-miles (Douglas-Omaha GIS)",
+      "url": "https://dcgis.org/server/rest/services/Hosted/Street_Preservation_Bond_Numbers/FeatureServer/0"
+    },
+    "panels_4510": {
+      "title": "Residential concrete panel repair, Area 4510, City Council agenda, 8 Apr 2025",
+      "url": "https://clerk.omaha.gov/wp-content/uploads/images/2025-04-08a.pdf"
+    },
+    "panels_60th": {
+      "title": "60th St concrete panel repair, City Council agenda, 15 Apr 2025",
+      "url": "https://clerk.omaha.gov/wp-content/uploads/images/2025-04-15a3.pdf"
+    },
+    "wowt_2023": {
+      "title": "WOWT: city maintenance engineer on how long resurfacing lasts, 29 Mar 2023",
+      "url": "https://www.wowt.com/2023/03/29/road-projects-planned-this-year-omaha/"
+    },
+    "wowt_2020": {
+      "title": "WOWT: Mayor Stothert on the $75M a year streets need",
+      "url": "https://www.wowt.com/content/news/Mayor-Stothert-updates-Omahas-streets-initiative-567231821.html"
+    },
+    "omc_26": {
+      "title": "Omaha Municipal Code, ch. 26 (sidewalks and street improvements)",
+      "url": "https://library.municode.com/ne/omaha/codes/code_of_ordinances?nodeId=PTIIMUCO_CH26PUIM_ARTIISTIM_DIV1GE_S26-41SICOREUT"
+    },
+    "oppd_rates": {
+      "title": "OPPD rate manual, street lighting schedule 350",
+      "url": "https://www.oppd.com/media/172612/oppd-rate-manual.pdf"
+    },
+    "nbi": {
+      "title": "FHWA National Bridge Inventory, Nebraska 2025",
+      "url": "https://www.fhwa.dot.gov/bridge/nbi/ascii.cfm"
+    },
+    "fhwa_costs": {
+      "title": "FHWA Bridge Replacement Unit Costs 2025, by state",
+      "url": "https://www.fhwa.dot.gov/bridge/nbi/sd2025.cfm"
+    },
+    "fhwa_life": {
+      "title": "FHWA-NHI-16-016: 75-year design life in AASHTO LRFD",
+      "url": "https://www.fhwa.dot.gov/bridge/steel/pubs/nhi16016.pdf"
+    },
+    "signals_layer": {
+      "title": "Traffic signal intersections, incl. year built and rebuild dates (Douglas-Omaha GIS)",
+      "url": "https://dcgis.org/server/rest/services/Hosted/Noneditable_Signal_Intersections/FeatureServer/0"
+    },
+    "dsm_signals": {
+      "title": "Des Moines council communication 26-131: two signal rebuilds, $600K",
+      "url": "https://councildocs.dsm.city/communications/2026/26-131.pdf"
+    },
+    "lemars": {
+      "title": "KTIV: Le Mars, IA signal modernization, $865K for three, 1 Apr 2025",
+      "url": "https://www.ktiv.com/2025/04/01/le-mars-city-council-approves-traffic-signal-modernization-project/"
+    },
+    "phoenix": {
+      "title": "Carollo for City of Phoenix: Water and Wastewater Unit Cost Study, Aug 2024",
+      "url": "https://phoenix.gov/pddsite/Documents/Impact%20Fees/Water%20and%20Wastewater%20Unit%20Cost%20Study_08142024_v2.pdf"
+    },
+    "design_manual": {
+      "title": "Omaha Wastewater Collection System Design Manual (service lives, table 3-1)",
+      "url": "https://publicworks.cityofomaha.org/wp-content/uploads/2024/09/Omaha-Wastewater-Collection-System-Design-Manual.pdf"
+    },
+    "mud_rates": {
+      "title": "M.U.D.: 2026 Omaha sewer use charges",
+      "url": "https://www.mudomaha.com/wp-content/uploads/2025/11/2026-MUD-Omaha-SUF-Charges-Brochure-FINAL-web-version.pdf"
+    },
+    "cso_moriver": {
+      "title": "Clean Solutions for Omaha: Missouri River plant",
+      "url": "https://omahacso.com/projects/moriverwrrf"
+    },
+    "hdr_2024": {
+      "title": "HDR presentation, 2024: Omaha plants' new design capacities (46 and 95 MGD)",
+      "url": "https://lewesbpwde.gov/wp-content/uploads/2024/01/Lewes-BPW-2024.pdf"
+    },
+    "tomahawk": {
+      "title": "Tomahawk Creek Wastewater Treatment Facility, Johnson County KS: $268M for 19 MGD",
+      "url": "https://www.wwdmag.com/top-projects/article/10939367/tomahawk-creek-wastewater-treatment-facility"
+    },
+    "ltcp_2021": {
+      "title": "Omaha CSO Long Term Control Plan update, 2021",
+      "url": "https://omahacso.com/download_file/view/338/218"
+    },
+    "cso_2025": {
+      "title": "Omaha CSO Program 2025 Annual Report",
+      "url": "https://omahacso.com/download_file/view/442/203"
+    },
+    "acfr_2024": {
+      "title": "City of Omaha FY2024 audited financial statements (sewer fund assets, note 10)",
+      "url": "https://auditors.nebraska.gov/Audits_Filed/2024/Omaha_FY2024.pdf"
+    }
+  },
+  "groups": [
+    {
+      "id": "pavement",
+      "title": "Street pavement",
+      "what": "Rebuilding and resurfacing every street the City maintains: 2,212 miles, 5,064 lane-miles.",
+      "how": "Each lane-foot costs, per year, its rebuild cost divided by how long it lasts, plus its resurfacing cost divided by how often that is done. Asphalt and asphalt-over-concrete streets get an overlay; bare concrete gets panel and joint repair instead. A parcel pays for its share of the lane-feet in front of it: a lot with lots across the street pays for half. Unimproved streets get no rebuild, because their owners pay to bring them up to standard.",
+      "table": {
+        "rows": ["Local", "Collector", "Minor Arterial", "Major Arterial", "Freeway"],
+        "cols": [
+          {"label": "Rebuild", "unit": "$/lane-ft", "path": "streets/reconstruct_per_lane_ft/{row}"},
+          {"label": "Lasts", "unit": "years", "path": "streets/reconstruct_life_years/{row}"},
+          {"label": "Overlay", "unit": "$/lane-ft", "path": "streets/resurface_per_lane_ft/overlay/{row}"},
+          {"label": "Concrete repair", "unit": "$/lane-ft", "path": "streets/resurface_per_lane_ft/concrete/{row}"},
+          {"label": "Every", "unit": "years", "path": "streets/resurface_interval_years/{row}"}
+        ]
+      },
+      "notes": [
+        {"text": "Local rebuild: Omaha's 2026 bid for 183rd & Wright St was $1,599,850 for about 0.67 miles of two-lane concrete street, $452 a foot or $226 a lane-foot. Adding about 20% for design, inspection and contingency gives $270.", "sources": ["bid_183rd"]},
+        {"text": "Minor arterial rebuild: the 2026 capital plan puts 84th St, Harrison to L, at $14.0M for 1.5 miles of five lanes, $1,770 a foot or about $360 a lane-foot.", "sources": ["cip_lines"]},
+        {"text": "Collector, major arterial and freeway rebuild costs are estimates between and beyond those two.", "estimate": true},
+        {"text": "How long a street lasts before a full rebuild is an estimate, and the input that moves the total most. Conventional concrete is often designed for 20-40 years; Omaha still runs 1950s-70s concrete with panel repairs and overlays.", "estimate": true},
+        {"text": "Overlay: the 2025 resurfacing program was $28.6M for more than 150 lane-miles, about $191K a lane-mile or $37 a lane-foot, including ramps and engineering. 2020-2023 bond work averaged $265K a lane-mile.", "sources": ["kios_2025", "spb_layer"]},
+        {"text": "Concrete repair: a 2025 residential panel contract came to about $15 a lane-foot; 60th St came to about $61.", "sources": ["panels_4510", "panels_60th"]},
+        {"text": "Resurfacing interval: the city's maintenance engineer, 'fifteen to 20 years on a residential street... Major streets... 8 to 12 years'. Collector is between.", "sources": ["wowt_2023"]},
+        {"text": "Check: resurfacing alone comes to about $61M a year, against the $75M a year the city said in 2019-20 it needed for 250 lane-miles.", "sources": ["wowt_2020"]},
+        {"text": "Lane counts and surfaces come from Public Works' own street inventory.", "sources": ["pw_streets"]}
+      ]
+    },
+    {
+      "id": "upkeep",
+      "title": "Street upkeep",
+      "what": "What the city actually spends running streets day to day, from the 2026 adopted budget.",
+      "how": "The total is spread evenly over every lane-foot the city maintains, about $2.87 a lane-foot a year, and each parcel pays for the lane-feet in front of it. Resurfacing programs are left out because they are already in pavement; so are design, inspection and administration.",
+      "params": [
+        {"path": "streets/upkeep/items/Pavement maintenance (116158)", "label": "Pavement maintenance: potholes, panels, crack sealing", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Snow and ice control (116154)", "label": "Snow and ice control", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Street and right-of-way cleaning (116152)", "label": "Street sweeping and mowing", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Residential brick street repair (116122)", "label": "Brick street repair", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Traffic engineering: signals, signs, markings (116180)", "label": "Traffic engineering: signals, signs, markings", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Street lighting and signal power (116200)", "label": "Street lights and signal power (OPPD)", "unit": "$/yr"},
+        {"path": "streets/upkeep/items/Bridge maintenance and rehabilitation (116164)", "label": "Bridge maintenance", "unit": "$/yr"}
+      ],
+      "notes": [
+        {"text": "Each figure is a 2026 appropriation in the adopted budget; the number in brackets in the config is the budget organization.", "sources": ["budget2026"]},
+        {"text": "Street lights: OPPD owns and maintains most of them and bills the city a yearly rate per light, which covers their replacement too.", "sources": ["oppd_rates"]},
+        {"text": "Sidewalks are not charged: abutting owners must repair them (OMC 26-41 to 26-44). The city's curb ramps are built with resurfacing, so they are in its cost.", "sources": ["omc_26"]}
+      ]
+    },
+    {
+      "id": "assets",
+      "title": "Bridges and signals",
+      "what": "142 city-owned bridges and culverts (1.13M sq ft of deck) and 972 active traffic signals.",
+      "how": "Replacement cost divided by how long each lasts. Each bridge or signal is charged to the street it sits on; a signal goes to the biggest road at its intersection. With arterial sharing on, those on arterials are split across the city.",
+      "params": [
+        {"path": "streets/bridges/cost_per_sf", "label": "Bridge replacement", "unit": "$/sq ft of deck"},
+        {"path": "streets/bridges/life_years", "label": "Bridges last", "unit": "years"},
+        {"path": "streets/signals/replace_cost/TRAFFIC", "label": "Rebuild a signalized intersection", "unit": "$"},
+        {"path": "streets/signals/replace_cost/_default", "label": "Rebuild a pedestrian signal or beacon", "unit": "$"},
+        {"path": "streets/signals/life_years", "label": "Signals last", "unit": "years"}
+      ],
+      "notes": [
+        {"text": "Bridges: FHWA's 2025 replacement cost for Nebraska bridges off the National Highway System, $280 a sq ft (3-year average), over the 75-year design life AASHTO specifies. Deck areas are FHWA's own.", "sources": ["nbi", "fhwa_costs", "fhwa_life"]},
+        {"text": "City viaducts cost more: the capital plan's 42nd St and 72nd St bridges work out to $530-1,000 a sq ft, project costs included.", "estimate": true},
+        {"text": "Signals: about $300K to rebuild an intersection in recent Midwest bids, plus about 30% for design and the city-supplied cabinet and controller. Pedestrian signals and beacons are an estimate.", "sources": ["dsm_signals", "lemars"], "estimate": true},
+        {"text": "Signal life: Omaha's own signals were rebuilt at a median age of 31 years.", "sources": ["signals_layer"]}
+      ]
+    },
+    {
+      "id": "pipes",
+      "title": "Sewer mains",
+      "what": "2,819 miles of city-owned sanitary, storm and combined sewer main.",
+      "how": "A foot of main costs a base amount plus an amount per inch of diameter to replace by digging it up, divided by how long it lasts. Mains 18 inches and smaller are charged to the lots along them, split by frontage like streets; wider mains and trunk lines are shared by sewer bill. Cleaning and repair is the city's actual spend, spread per foot of main.",
+      "params": [
+        {"path": "sewer/pipe/cost_base_per_ft", "label": "Replacement, base", "unit": "$/ft"},
+        {"path": "sewer/pipe/cost_per_inch_diameter", "label": "Replacement, per inch of diameter", "unit": "$/ft per inch"},
+        {"path": "sewer/pipe/service_life_years", "label": "Mains last", "unit": "years"},
+        {"path": "sewer/pipe_upkeep/items/Sewer maintenance (116511)", "label": "Cleaning and repair", "unit": "$/yr"}
+      ],
+      "notes": [
+        {"text": "Replacement: Phoenix's 2024 unit cost study puts open-cut pipe at $350-400 a foot for 8-inch, $770-940 for 24-inch and $1,230-1,550 for 36-inch, construction only. $150 + $35 per inch, about 20% above that for engineering, fits it. An 8-inch main comes to $430 a foot.", "sources": ["phoenix"]},
+        {"text": "Life: Omaha's design manual gives gravity sewer 50-100 years.", "sources": ["design_manual"]},
+        {"text": "Lining a pipe from inside costs far less, roughly $12 per inch per foot, and lasts about 50 years. Lining every main would cut the sewer cost by about $89M a year.", "estimate": true},
+        {"text": "Cleaning and repair is the 2026 Sewer Maintenance appropriation.", "sources": ["budget2026"]}
+      ]
+    },
+    {
+      "id": "system",
+      "title": "Sewer plants and operations",
+      "what": "Two treatment plants, about 51 pump and lift stations, the CSO storage basin and force main, and running it all.",
+      "how": "Replacement value divided by life, plus yearly operating cost. These serve the whole sewershed, including Bellevue, Papillion, La Vista, Ralston and others, so only the city's share is charged: its sewer bills over the $231.9M the system collects. Each parcel pays in proportion to its sewer bill.",
+      "params": [
+        {"path": "sewer/facilities/items/Treatment plants/replacement_value", "label": "Treatment plants, replacement value", "unit": "$"},
+        {"path": "sewer/facilities/items/Treatment plants/life_years", "label": "Treatment plants last", "unit": "years"},
+        {"path": "sewer/facilities/items/Pump and lift stations/replacement_value", "label": "Pump and lift stations, replacement value", "unit": "$"},
+        {"path": "sewer/facilities/items/Pump and lift stations/life_years", "label": "Pump stations last", "unit": "years"},
+        {"path": "sewer/facilities/items/CSO storage basin, force main, controls/replacement_value", "label": "CSO basin, force main, controls, replacement value", "unit": "$"},
+        {"path": "sewer/facilities/items/CSO storage basin, force main, controls/life_years", "label": "CSO works last", "unit": "years"},
+        {"path": "sewer/operations/items/Water resource recovery: treatment plants (116600)", "label": "Running the treatment plants", "unit": "$/yr"},
+        {"path": "sewer/operations/items/Sewer general expense: M.U.D. billing, insurance, city overhead (116518)", "label": "Billing, insurance, city overhead", "unit": "$/yr"},
+        {"path": "sewer/operations/items/Interceptor and pump station maintenance (116717)", "label": "Interceptor and pump station upkeep", "unit": "$/yr"},
+        {"path": "sewer/operations/items/Sewer planning (116512)", "label": "Sewer planning", "unit": "$/yr"},
+        {"path": "sewer/operations/items/Environmental quality control (116700)", "label": "Pretreatment, monitoring, lab", "unit": "$/yr"},
+        {"path": "sewer/fee_revenue_systemwide", "label": "Sewer fees the whole system collects", "unit": "$/yr"}
+      ],
+      "notes": [
+        {"text": "Omaha publishes no replacement values for these, so all three are estimates from capacity and other cities' costs.", "estimate": true},
+        {"text": "Plants: the two plants are being rebuilt to 46 and 95 million gallons a day at peak month, about 118 on an average day. Tomahawk Creek in Johnson County, KS cost $268M for 19 MGD in 2020, $14.1M per MGD; escalated and scaled down for size, about $13.5M. 118 x $13.5M is about $1.6B, over 40 years (structures 50, equipment 20-25).", "sources": ["hdr_2024", "cso_moriver", "tomahawk"]},
+        {"text": "Pump stations: about 70 pumping stations less 19 flood-control ones. The nine big CSO lift stations at Omaha's own cost per MGD, the rest at about $2.5M each: about $270M, over 33 years.", "sources": ["design_manual", "ltcp_2021", "phoenix"]},
+        {"text": "CSO works: only what is not already counted as pipe, plant or pump station: the Saddle Creek retention basin ($142M), the South Interceptor Force Main ($54M) and about $20M of controls, escalated: about $260M over 42 years.", "sources": ["cso_2025", "ltcp_2021"]},
+        {"text": "For comparison, the sewer fund's own depreciation was $51.7M in FY2024 and $61.5M in FY2025, at what the assets originally cost rather than what they would cost now.", "sources": ["acfr_2024"]},
+        {"text": "Operating costs and systemwide fee revenue are 2026 appropriations and revenue estimates.", "sources": ["budget2026"]}
+      ]
+    },
+    {
+      "id": "bills",
+      "title": "Sewer bills",
+      "what": "Each parcel's estimated sewer bill: the income side of the sewer ledger.",
+      "how": "12 x (customer charge x accounts + flow charge x water use). Water use per property is not public, so it is estimated per house, per apartment and per modelled employee. A house comes to $841 a year.",
+      "params": [
+        {"path": "sewer/fees/customer_charge_monthly", "label": "Customer charge", "unit": "$/month"},
+        {"path": "sewer/fees/flow_charge_per_ccf", "label": "Flow charge", "unit": "$/CCF"},
+        {"path": "sewer/usage_ccf_per_month/single_family_unit", "label": "Water use, house", "unit": "CCF/month"},
+        {"path": "sewer/usage_ccf_per_month/multi_family_unit", "label": "Water use, apartment", "unit": "CCF/month"},
+        {"path": "sewer/usage_ccf_per_month/per_employee", "label": "Water use, per employee", "unit": "CCF/month"}
+      ],
+      "notes": [
+        {"text": "Charges are M.U.D.'s published 2026 Omaha residential rates. 1 CCF is 748 gallons.", "sources": ["mud_rates"]},
+        {"text": "Water use: M.U.D.'s own sample bill uses 6 CCF a month for a house. Apartments and employees are estimates.", "sources": ["mud_rates"], "estimate": true}
+      ]
+    }
+  ],
+  "fixed": [
+    {"label": "Share of city property tax credited to infrastructure", "path": "_credit", "how": "What the 2026 budget puts into streets and sewers from property tax: Public Works' General Fund share plus the street and sewer share of debt service, over all property-tax-funded spending.", "sources": ["budget2026"]},
+    {"label": "Widest main charged to the lots along it", "path": "sewer/pipe/local_max_diameter_in", "unit": "inches", "how": "Local sanitary mains are 8-12 inches and storm laterals 15-18; past that a pipe drains a neighbourhood or a watershed, so it is shared by sewer bill.", "estimate": true},
+    {"label": "Lanes a neighbourhood street is priced at", "path": "streets/default_lanes", "unit": "lanes", "how": "With arterial sharing on, a lot on an arterial pays for this many lanes; the rest is shared."},
+    {"label": "Police, fire, parks and general government", "path": "_services", "how": "Allocated from the 2026 General Fund at the 21.9% property tax funds, plus the debt, redevelopment and judgment levies, by residents, employees and parcels (config/budget.csv). They balance citywide by construction.", "sources": ["budget2026"]}
+  ]
+}

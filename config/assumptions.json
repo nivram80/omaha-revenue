@@ -1,16 +1,16 @@
 {
   "_": [
     "Every modelling assumption in the cost side, in one place, so each one can",
-    "be argued with. Values marked ESTIMATE are industry ballparks, not Omaha",
-    "figures; replace them with Omaha bid tabs and CIP unit costs when you have",
-    "them. Everything else is sourced.",
+    "be argued with. Values marked ESTIMATE are judgement, not Omaha figures;",
+    "replace them with Omaha bid tabs and asset inventories when you have them.",
+    "Everything else is sourced.",
     "",
-    "The single most consequential switch is capital_liability.enabled. With it",
-    "off, the map shows how property tax is shared out among parcels and the",
-    "citywide net is zero by construction. With it on, the city is collectively",
-    "short by exactly the unfunded renewal figure, and the map shows both",
-    "relative position and the aggregate shortfall. Both are honest; they answer",
-    "different questions."
+    "Streets and sewers are priced at what they cost to keep up over their",
+    "lives, not at what the budget spends on them, so the bases that include",
+    "them can show a citywide shortfall. The most consequential inputs are the",
+    "street reconstruction lives and pricing sewer renewal as open-cut",
+    "replacement rather than lining. Services (police, fire, parks, general",
+    "government) are allocated from the 2026 budget and balance by construction."
   ],
   "projection": {
     "_": "Local planar frame in feet, WGS84 radii evaluated at Omaha's latitude. Good to ~0.2% over a 30 km city, i.e. inches on a 70 ft frontage.",
@@ -121,68 +121,181 @@
     "household_size_renter": 2.02,
     "census_housing_units": 216000
   },
-  "capital_liability": {
+  "streets": {
     "_": [
-      "The renewal cost the city does not budget: replacement cost per foot",
-      "divided by service life. This is the number that turns a value-per-acre map",
-      "into a fiscal argument, and it is also the softest input in the model \u2014 it",
-      "is a straight-line sinking-fund approximation, not a pavement management",
-      "system. already_funded_annual is subtracted before allocation: the Street",
-      "Allocation Fund (fuel tax 63,623,388 + wheel tax 22,959,543, both restricted",
-      "to street work) plus the 2022 Street Preservation Bond appropriation of",
-      "40,000,000, all from the 2026 adopted budget.",
-      "Streets only. Sewer renewal used to be added here too, but sewers are paid",
-      "for by sewer fees, which already_funded_annual never counted - so the whole",
-      "'unfunded' figure was sewer pipe the sewer bills already cover. Sewer now",
-      "has its own two-sided section below."
+      "What the existing street network costs a year to keep, independent of",
+      "what the budget spends on it. Pavement is renewal: rebuild cost over its",
+      "life plus resurfacing cost over its interval, per lane-foot. Upkeep is",
+      "the city's actual 2026 operating spend, spread per lane-foot. Bridges",
+      "and signals are replacement cost over life. Unit costs are 2026 dollars",
+      "anchored on Omaha bids and capital-plan estimates; values marked",
+      "ESTIMATE are judgement between those anchors, and the reconstruction",
+      "lives are the softest inputs in the model.",
+      "",
+      "The network is Public Works' own inventory (DOGIS",
+      "Streets_For_Public_Works_CCSM), which carries lane counts. Divided roads",
+      "are drawn once per direction with that direction's lanes, so pricing by",
+      "the lane-foot counts each carriageway once."
     ],
-    "enabled": true,
-    "already_funded_annual": 126582931,
-    "street": {
-      "_": "ESTIMATE \u2014 full-depth reconstruction, Midwest, dollars per centerline foot.",
-      "replace_cost_per_ft": {
-        "Local": 210,
-        "Collector": 330,
-        "Minor Arterial": 520,
-        "Major Arterial": 780
+    "class_map": {
+      "Local": "Local",
+      "Park Service Road": "Local",
+      "Minor Collector": "Collector",
+      "Major Collector": "Collector",
+      "Urban Collector": "Collector",
+      "Minor Arterial": "Minor Arterial",
+      "Other Principal Arterial": "Major Arterial",
+      "Other Freeway and Expressway": "Freeway"
+    },
+    "class_rank": [
+      "Local",
+      "Collector",
+      "Minor Arterial",
+      "Major Arterial",
+      "Freeway"
+    ],
+    "no_frontage_classes": [
+      "Freeway"
+    ],
+    "default_lanes": 2,
+    "surface_kind": {
+      "_": "Public Works surface_type codes. 'none': unimproved or substandard streets, which abutting owners pay to bring up to standard (OMC 26-47), so the city carries upkeep but no renewal.",
+      "C": "concrete",
+      "B": "concrete",
+      "AB": "concrete",
+      "O": "overlay",
+      "A": "overlay",
+      "SA": "none",
+      "SO": "none",
+      "UG": "none",
+      "UA": "none"
+    },
+    "reconstruct_per_lane_ft": {
+      "_": [
+        "Full-depth reconstruction, all-in, per lane-foot. Local: 183rd St & Wright",
+        "St concrete reconstruction bid, $1,599,850 over ~0.67 mi = $452/ft for",
+        "two lanes, plus ~20% engineering and contingency (City Clerk agenda",
+        "2026-04-21). Minor arterial: 84th St Harrison to L, $14.0M over 1.5 mi",
+        "= $1,770/ft for five lanes (2026 CIP, DOGIS PW_CIP_Project_Lines).",
+        "Collector and major arterial are ESTIMATE between and beyond those."
+      ],
+      "Local": 270,
+      "Collector": 320,
+      "Minor Arterial": 360,
+      "Major Arterial": 400,
+      "Freeway": 400
+    },
+    "reconstruct_life_years": {
+      "_": "ESTIMATE. FHWA puts conventional concrete at 20-40 years and long-life concrete at 40+; Omaha still runs 1950s-70s concrete with panel repair and overlays.",
+      "Local": 50,
+      "Collector": 45,
+      "Minor Arterial": 40,
+      "Major Arterial": 40,
+      "Freeway": 40
+    },
+    "resurface_per_lane_ft": {
+      "overlay": {
+        "_": "Mill and overlay, all-in: 2025 program $28.6M for 150+ lane-miles = ~$191K per lane-mile (KIOS, 2025-02-26). 2026 contract bids alone run $122-148K per lane-mile.",
+        "Local": 37,
+        "Collector": 37,
+        "Minor Arterial": 37,
+        "Major Arterial": 37,
+        "Freeway": 37
       },
-      "service_life_years": {
-        "Local": 40,
-        "Collector": 40,
-        "Minor Arterial": 35,
-        "Major Arterial": 35
-      },
-      "network_share": {
-        "_": [
-          "Arterials and collectors carry traffic from across the city, so the",
-          "homes lining one should not pay for all of it. With this enabled, a",
-          "parcel is charged what its frontage would cost as a neighbourhood",
-          "street (local_class), and everything above that - the extra width",
-          "and depth of a through road - is pooled and spread over every foot",
-          "of street frontage in the city. Disable it to charge each road's full",
-          "cost to the parcels that front it."
-        ],
-        "enabled": true,
-        "local_class": "Local"
+      "concrete": {
+        "_": "Concrete panel and joint repair: residential area 4510, $1.125M over 7.09 mi = ~$15 per lane-foot; 60th St (4 lanes) $1.46M = ~$61 per lane-foot (2025 bids).",
+        "Local": 15,
+        "Collector": 30,
+        "Minor Arterial": 60,
+        "Major Arterial": 60,
+        "Freeway": 60
       }
+    },
+    "resurface_interval_years": {
+      "_": "City maintenance engineer: '15 to 20 years on a residential street resurfacing... Major streets... 8 to 12 years' (WOWT, 2023-03-29). Collector ESTIMATE between.",
+      "Local": 18,
+      "Collector": 15,
+      "Minor Arterial": 10,
+      "Major Arterial": 10,
+      "Freeway": 10
+    },
+    "network_share": {
+      "_": [
+        "Arterials and collectors carry traffic from across the city, so the",
+        "homes lining one should not pay for all of it. With this enabled, a",
+        "parcel is charged what its frontage would cost as a two-lane",
+        "neighbourhood street, and everything above that - the extra lanes, the",
+        "bridges and signals - is pooled and spread over every foot of street",
+        "frontage in the city. Disable it to charge each road's full cost to the",
+        "parcels that front it."
+      ],
+      "enabled": true,
+      "local_class": "Local"
+    },
+    "upkeep": {
+      "_": [
+        "2026 adopted appropriations for running the street network, spread per",
+        "lane-foot. Left out: construction inspection, design and Public Works",
+        "administration (overhead of capital projects), park roads, creek",
+        "channels, graffiti, and the resurfacing programs, which are renewal and",
+        "already in pavement above. Street lighting is OPPD's tariff, which covers",
+        "the lights' own capital and maintenance."
+      ],
+      "items": {
+        "Pavement maintenance (116158)": 36348012,
+        "Snow and ice control (116154)": 9205684,
+        "Street and right-of-way cleaning (116152)": 3422203,
+        "Residential brick street repair (116122)": 600000,
+        "Traffic engineering: signals, signs, markings (116180)": 13267804,
+        "Street lighting and signal power (116200)": 13117621,
+        "Bridge maintenance and rehabilitation (116164)": 850000
+      }
+    },
+    "bridges": {
+      "_": "City-owned structures in the FHWA National Bridge Inventory (owner 04, place 37000), culverts included. FHWA 2025 Bridge Replacement Unit Costs: Nebraska, off the National Highway System, $280/sf (3-year average). AASHTO LRFD design life 75 years.",
+      "file": "bridges.ndjson",
+      "cost_per_sf": 280,
+      "life_years": 75,
+      "snap_ft": 250
+    },
+    "signals": {
+      "_": [
+        "Active signals in DOGIS Noneditable_Signal_Intersections (972, 2026).",
+        "ESTIMATE: $300K construction per intersection (Des Moines 2026, $600K",
+        "for two; Le Mars IA 2025, $865K for three) plus ~30% for design and the",
+        "city-furnished cabinet and controller. Pedestrian signals, hybrid",
+        "beacons and the like ESTIMATE at $150K. Life: Omaha's median age at",
+        "rebuild is 31 years (same layer)."
+      ],
+      "file": "signals.ndjson",
+      "replace_cost": {
+        "TRAFFIC": 400000,
+        "_default": 150000
+      },
+      "life_years": 30,
+      "snap_ft": 120
+    },
+    "sidewalks": "Not charged. Abutting owners pay to repair sidewalks (OMC 26-41 to 26-44). The city's ADA ramps are built with resurfacing and are in its all-in cost.",
+    "other_street_funding": {
+      "_": "Street Allocation Fund revenue restricted to street work that is not property tax, so it is not credited to any parcel (2026 adopted budget).",
+      "Fuel tax": 63623388,
+      "Wheel tax": 22959543
     }
   },
   "sewer": {
     "_": [
       "Omaha's sewers are an enterprise fund paid by sewer use fees, which M.U.D.",
       "bills on the City's behalf - not by property tax. So sewer is counted on",
-      "both sides: each parcel's estimated sewer bill is income, and its share of",
-      "the sewer system is cost. The system is assumed to break even citywide",
-      "(fees are set to cover it), so sewer moves money between parcels without",
-      "changing the citywide total.",
+      "both sides: each parcel's estimated sewer bill is income, and what its",
+      "share of the system costs to keep is cost. Nothing forces the two to",
+      "match.",
       "",
-      "The cost side has two parts. Pipes along the lot: renewal of the local",
-      "mains under the streets the parcel fronts, split by frontage like streets.",
-      "Everything else - treatment plants, interceptors and other trunk lines,",
-      "mains not under any street, the CSO program, operations - is shared in",
-      "proportion to each parcel's sewer bill, i.e. its flow. Net sewer for a",
-      "parcel is therefore its bill's share of local pipe cost, minus the local",
-      "pipe cost actually in front of it.",
+      "The cost side has two parts. Mains along the lot: renewal and cleaning of",
+      "the local mains under the streets the parcel fronts, split by frontage",
+      "like streets. Everything else - trunk lines, mains off the street grid,",
+      "treatment plants, pump stations, the CSO works, operations - is shared",
+      "in proportion to each parcel's sewer bill, i.e. its flow, after scaling",
+      "to the city's share of the system's fee revenue.",
       "",
       "Fees use the published 2026 residential rates. Water use per property is",
       "not public, so it is estimated: usage values are ESTIMATE. M.U.D.'s own",
@@ -205,17 +318,27 @@
     },
     "pipe": {
       "_": [
-        "ESTIMATE \u2014 open-cut replacement, dollars per foot = base + per_inch x",
-        "diameter. Priced by diameter because LINE_TYPE is not a size: 'Collector'",
-        "mains are 8-inch, the smallest public pipe, while 'Sewer' lines run 15-48",
-        "inches. An earlier per-type table charged the 8-inch mains $400/ft and",
-        "the larger lines $250/ft. default_diameter_in fills missing diameters",
-        "with each type's median. trunk_types carry flow from whole basins, so",
-        "they are shared like treatment rather than charged to the street above."
+        "Open-cut replacement, all-in, dollars per foot = base + per_inch x",
+        "diameter: Carollo's 2024 unit cost study for Phoenix (8-inch $350-400,",
+        "24-inch $770-940, 36-inch $1,230-1,550, construction only) plus ~20%",
+        "engineering, checked against Omaha projects (24th & Ogden storm, Cole",
+        "Creek). Life 75 years, inside the 50-100 Omaha's Wastewater Collection",
+        "System Design Manual gives gravity pipe. Lining is far cheaper and would",
+        "stretch that life; this prices replacement. Priced by diameter because",
+        "LINE_TYPE is not a size: 'Collector' mains are 8-inch, the smallest",
+        "public pipe, while 'Sewer' lines run 15-96 inches. default_diameter_in",
+        "fills missing diameters with each type's median.",
+        "",
+        "trunk_types carry flow from whole basins, so they are shared like",
+        "treatment rather than charged to the street above. So is any main wider",
+        "than local_max_diameter_in (ESTIMATE): local sanitary collectors are 8-12",
+        "inches and storm laterals 15-18; past that a pipe drains a neighbourhood",
+        "or a watershed, not the block it runs under."
       ],
-      "cost_base_per_ft": 100,
-      "cost_per_inch_diameter": 12.5,
+      "cost_base_per_ft": 150,
+      "cost_per_inch_diameter": 35,
       "service_life_years": 75,
+      "local_max_diameter_in": 18,
       "default_diameter_in": {
         "Collector": 8,
         "Sewer": 24,
@@ -234,18 +357,68 @@
         "Diversion Line",
         "Future Interceptor"
       ]
+    },
+    "fee_revenue_systemwide": 231942542,
+    "pipe_upkeep": {
+      "_": "2026 adopted: sewer cleaning and repair of mains, manholes and inlets, spread per foot of city-owned main.",
+      "items": {
+        "Sewer maintenance (116511)": 16223493
+      }
+    },
+    "operations": {
+      "_": "2026 adopted Sewer Revenue operating costs other than main cleaning. Systemwide; scaled to the city's share. Flood control (levees and their pump stations) is left out: it is paid by the separate storm water fee, which is not counted as income either.",
+      "items": {
+        "Water resource recovery: treatment plants (116600)": 27422772,
+        "Sewer general expense: M.U.D. billing, insurance, city overhead (116518)": 13441737,
+        "Interceptor and pump station maintenance (116717)": 5179808,
+        "Sewer planning (116512)": 3568901,
+        "Environmental quality control (116700)": 3365631
+      }
+    },
+    "facilities": {
+      "_": [
+        "Replacement value over life for what is not in the pipe inventory.",
+        "Omaha publishes no replacement values, so all three are ESTIMATES built",
+        "from sourced unit costs. Plants: 46 + 95 MGD max-month design (HDR,",
+        "2024) is ~118 MGD average-day, at ~$13.5M per MGD (Tomahawk Creek, KS,",
+        "2020, $14.1M/MGD, escalated and scaled for size), over a 40-year blended",
+        "life (structures 50, equipment 20-25). Pump stations: ~51 sewer stations",
+        "(the design manual's ~70 less 19 flood-control ones); the nine CSO lift",
+        "stations at Omaha's own cost per MGD, the rest at ~$2.5M each (Carollo",
+        "2024, EPA needs-survey curve), 33-year blended life. CSO works: only the",
+        "assets not already counted as pipe, plant or pump station - Saddle Creek",
+        "retention basin ($142M), South Interceptor Force Main ($54M), controls",
+        "and green infrastructure (~$20M) - escalated 1.2x, 42-year life. Sewer",
+        "fund depreciation for comparison: $61.5M (FY2025 ACFR, historical cost)."
+      ],
+      "items": {
+        "Treatment plants": {
+          "replacement_value": 1600000000,
+          "life_years": 40
+        },
+        "Pump and lift stations": {
+          "replacement_value": 270000000,
+          "life_years": 33
+        },
+        "CSO storage basin, force main, controls": {
+          "replacement_value": 260000000,
+          "life_years": 42
+        }
+      }
     }
   },
   "sources": {
     "budget": "City of Omaha 2026 Adopted Budget (2026_Adopted_Budget_Web.pdf)",
     "levy_split": "2026 Adopted Budget p.156, Supplemental Notes to Revenue Projections",
     "household_size": "US Census ACS, City of Omaha average household size",
-    "streets": "DOGIS Street_Centerlines, city-maintained classes only",
+    "streets": "DOGIS Hosted/Streets_For_Public_Works_CCSM (Public Works street inventory, lane counts)",
     "sewer": "DOGIS Sewer_Network_Public, OWNER='Omaha', mains only",
     "sewer_fees": "M.U.D., Omaha 2026 Sewer Use Charges brochure (mudomaha.com)",
     "sewer_fund": "2026 Adopted Budget: Sewer Revenue Fund is an enterprise fund (PDF p.127); Sewer Use Fee revenue 231,942,542 (PDF p.34)",
     "address_points": "DOGIS Address_Points, PIN-joined",
     "population": "US Census 2020, City of Omaha 486,051",
-    "parcel_attrs": "DOGIS Parcels_public (DCAACCTYPE, BLDG_DESC, BLDG_SF)"
+    "parcel_attrs": "DOGIS Parcels_public (DCAACCTYPE, BLDG_DESC, BLDG_SF)",
+    "signals": "DOGIS Hosted/Noneditable_Signal_Intersections, status Active",
+    "bridges": "FHWA National Bridge Inventory, Nebraska 2025 (NE25.txt)"
   }
 }

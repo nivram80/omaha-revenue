@@ -28,8 +28,10 @@
 #   acres      parcel area
 #   parcels    flat per parcel
 #
-# The capital replacement liability is NOT here — it is off-budget by definition,
-# which is the whole point of it. See capital_liability in assumptions.json.
+# The frontage rows are what property tax puts into streets and sewers today.
+# They set the infrastructure credit, but streets are not charged at these
+# amounts: 05_costs.py prices them at what they cost to keep up over their
+# lives. See streets in assumptions.json.
 #
 bucket,item,unit,amount,allocator,note
 general,Police,dollars,216264680,people,GF 38.4% — calls for service scale with people present

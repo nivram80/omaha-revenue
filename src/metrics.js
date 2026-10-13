@@ -51,29 +51,31 @@ const MIN_ACRES = 0.01;
  * city comfortably in the black. Credit fractions are computed in
  * build/05_costs.py from the adopted budget and arrive in the manifest.
  *
- * The renewal liability is deliberately left uncredited, which is why the
- * citywide shortfall lands on the infrastructure basis: that is what it is.
+ * Services cost what property tax gives them, so that basis balances. Streets
+ * and sewers cost what they take to keep up, whatever is spent on them today,
+ * so any citywide gap lands on the bases that include them.
  */
 export const BASES = {
   full: {
     label: "Everything tax and sewer fees buy",
     short: "Full cost basis",
     blurb:
-      "City property tax and the estimated sewer bill, against their full " +
-      "allocated share of police, fire, parks, general government, streets " +
-      "and the sewer system. This is the whole bill.",
+      "City property tax and the estimated sewer bill, against what the " +
+      "parcel's streets and sewers cost to keep up plus its share of police, " +
+      "fire, parks and general government. This is the whole bill.",
     note:
-      "Sewer is 40% of this basis, police, fire, parks and library 38%, " +
-      "streets 14% and general government 8%. The people-driven share means " +
-      "per acre it still weighs population density against assessed value.",
+      "Services balance citywide by construction, so any citywide loss here " +
+      "is the street and sewer gap. The people-driven share means per acre " +
+      "it still weighs population density against assessed value.",
   },
   infrastructure: {
     label: "Infrastructure only",
     short: "Infrastructure basis",
     blurb:
-      "The share of property tax that funds streets, plus the sewer bill, " +
-      "against what each parcel's frontage costs to maintain and replace and " +
-      "its share of the sewer system. This is the question value-per-acre " +
+      "The share of property tax that goes to streets and sewers today, plus " +
+      "the sewer bill, against what the parcel's streets and sewers cost to " +
+      "keep up over their lives: rebuilding, resurfacing, upkeep, bridges, " +
+      "signals, pipes and plants. This is the question value-per-acre " +
       "analysis usually poses.",
     note:
       "Police, fire and general government are excluded on both sides, so " +
@@ -129,10 +131,10 @@ export const METRICS = {
     diverging: true,
     needsCost: true,
     blurb:
-      "City property tax and sewer bill the parcel pays, minus its allocated " +
-      "share of what they buy and of any street renewal the city is not " +
-      "funding. Above the plane the parcel carries itself; below it, the rest " +
-      "of the city makes up the difference.",
+      "City property tax and sewer bill the parcel pays, minus what its " +
+      "streets and sewers cost to keep up and its share of any services in " +
+      "the basis. Above the plane the parcel carries itself; below it, the " +
+      "rest of the city, or borrowing, makes up the difference.",
     compute: (d, i) => (d.acres[i] >= MIN_ACRES ? netUnder(d, i) / d.acres[i] : 0),
   },
   net: {

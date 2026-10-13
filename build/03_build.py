@@ -26,7 +26,22 @@ SRC = os.path.join(ROOT, "data", "raw", "parcels.ndjson")
 COSTS = os.path.join(ROOT, "data", "interim", "costs.ndjson")
 COST_SUMMARY = os.path.join(ROOT, "data", "interim", "cost_summary.json")
 LEVIES = os.path.join(ROOT, "config", "levies.json")
+ASSUMPTIONS = os.path.join(ROOT, "config", "assumptions.json")
+PARAMETERS = os.path.join(ROOT, "config", "parameters.json")
 OUTDIR = os.path.join(ROOT, "data", "out")
+
+# Per-parcel quantities the map re-prices when an assumption is edited, in
+# data/out/model.bin. Each is (name, source key in costs.ndjson, index into
+# that vector or None). Quantity vectors are laid out in build/pricing.py:
+# overlay lane-feet by class 0-4, concrete 5-9, unimproved 10, bridge deck 11,
+# traffic signals 12, other signals 13. Parcels never front a freeway (4, 9),
+# and the shared variant only ever holds neighbourhood-street lanes and the
+# assets on neighbourhood streets.
+MODEL_FIELDS = (
+    [(f"own_{k}", "q_own", k) for k in (0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13)]
+    + [(f"shared_{k}", "q_shared", k) for k in (0, 5, 10, 11, 12, 13)]
+    + [(k, k, None) for k in ("pipe_ft", "pipe_ft_in", "fee_accounts", "fee_ccf_count")]
+)
 
 R = 6378137.0
 SIMPLIFY_M = 0.5  # ground metres
@@ -292,6 +307,8 @@ def main():
                 "cls": bytearray(),
                 "flags": bytearray(),
                 "attrs": [],
+                "model": [array.array("f") for _ in MODEL_FIELDS],
+                "ccf_kind": bytearray(),
             }
         return c
 
@@ -348,6 +365,10 @@ def main():
             c["c_sewer"].append(float(cost.get("c_sewer", 0.0)) if cost else 0.0)
             c["cls"].append(cls)
             c["flags"].append(flags)
+            for arr, (_, key, k) in zip(c["model"], MODEL_FIELDS):
+                v = (cost or {}).get(key, 0.0)
+                arr.append(float(v[k] if k is not None else v))
+            c["ccf_kind"].append(int((cost or {}).get("fee_ccf_kind", 0)))
             parts = (cost or {}).get("parts", {})
             c["attrs"].append(
                 [
@@ -361,12 +382,11 @@ def main():
                     round((cost or {}).get("cost_total", 0.0)),
                     round((cost or {}).get("residents", 0.0), 1),
                     round((cost or {}).get("employees", 0.0), 1),
-                    # cost breakdown, fixed order: frontage, people, residents, acres, parcels
+                    # cost breakdown, fixed order: frontage, people, residents, acres, parcels.
+                    # Street and sewer breakdowns are re-priced in the map from
+                    # model.bin, so they are not stored here.
                     [round(parts.get(k, 0.0)) for k in
                      ("frontage", "people", "residents", "acres", "parcels")],
-                    # sewer, fixed order: estimated bill, local pipes, shared
-                    [round((cost or {}).get(k, 0.0)) for k in
-                     ("sewer_fee", "sewer_pipes", "sewer_shared")],
                 ]
             )
 
@@ -445,6 +465,28 @@ def main():
     with open(os.path.join(OUTDIR, "attrs.json"), "w") as f:
         json.dump(attrs, f, separators=(",", ":"))
 
+    # Quantities for re-pricing: one f32 column per MODEL_FIELDS entry, then a
+    # u8 column of sewer-usage kinds, all in parcel order.
+    model = None
+    if cost_summary:
+        cols = [b"".join(cells[k]["model"][i].tobytes() for k in order)
+                for i in range(len(MODEL_FIELDS))]
+        kinds = b"".join(bytes(cells[k]["ccf_kind"]) for k in order)
+        body = struct.pack("<4sIII", b"OMQM", 1, first_parcel, len(MODEL_FIELDS))
+        with open(os.path.join(OUTDIR, "model.bin"), "wb") as f:
+            f.write(body + b"".join(cols) + kinds)
+        with open(ASSUMPTIONS) as f:
+            assumptions = json.load(f)
+        with open(PARAMETERS) as f:
+            meta = json.load(f)
+        meta.pop("_", None)
+        model = {
+            "file": "model.bin",
+            "fields": [name for name, _, _ in MODEL_FIELDS],
+            "assumptions": assumptions,
+            "meta": meta,
+        }
+
     total_assessed = sum(sum(cells[k]["assessed"]) for k in order)
     total_acres = sum(sum(cells[k]["acres"]) for k in order)
     manifest = {
@@ -459,6 +501,7 @@ def main():
         "estimated_city_property_tax": total_assessed * city_levy,
         "class_names": CLASS_NAMES,
         "cost_model": cost_summary,
+        "model": model,
         "flags": {"tif": FLAG_TIF, "exempt": FLAG_EXEMPT},
         "sources": {
             "parcels": "Nebraska statewide parcel layer (gis.ne.gov)",

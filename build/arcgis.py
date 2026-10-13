@@ -104,7 +104,12 @@ def fetch_layer(
             )
             for feat in payload.get("features", []):
                 rec = feat["attributes"]
-                if geometry:
+                if geometry and geom_key == "point":
+                    g = feat.get("geometry") or {}
+                    if g.get("x") is None:
+                        continue
+                    rec["lon"], rec["lat"] = g["x"], g["y"]
+                elif geometry:
                     g = (feat.get("geometry") or {}).get(geom_key)
                     if not g:
                         continue  # a few rows carry attributes but no shape

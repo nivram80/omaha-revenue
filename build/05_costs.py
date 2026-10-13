@@ -12,22 +12,24 @@ Four stages:
   demand    Address points per PIN give dwelling units; building square feet
             over a per-class intensity gives employees.
 
-  allocate  Each row of config/budget.csv is spread across parcels in
-            proportion to that row's allocator, then scaled to the share of
-            spending that property tax actually funds. Through roads are
-            charged to their frontage at neighbourhood-street cost; the premium
-            is shared over every foot of frontage in the city. Street cost is
-            also written the other way - each road's full cost to its own
-            frontage - so the map can switch between them.
+  streets   What the existing street network really costs a year, independent
+            of what the budget spends on it: rebuilding and resurfacing every
+            city street over its life, the city's actual day-to-day upkeep
+            (patching, snow, sweeping, signals, lights) spread per square foot
+            of pavement, and the replacement of bridges and signals. Through
+            roads are charged to their frontage at neighbourhood-street cost;
+            the premium is shared over every foot of frontage in the city.
+            Street cost is also written the other way - each road's full cost
+            to its own frontage - so the map can switch between them.
 
-  liability The street renewal the city does not budget for, less what it
-            already sets aside. This is off-budget by definition, which is
-            exactly why it belongs in the picture.
+  sewer     The same for the sewer system: renewal and cleaning of the mains
+            along each lot, plus a flow-proportional share of trunk lines,
+            treatment plants, pump stations, the CSO works and operations.
+            Set against an estimated sewer bill.
 
-  sewer     Paid by sewer fees, not property tax, so counted on both sides: an
-            estimated sewer bill as income, and a share of the system as cost -
-            the local mains along the lot plus a flow-proportional share of
-            everything else.
+  services  Each police, fire, parks and general-government row of
+            config/budget.csv is spread across parcels in proportion to its
+            allocator, scaled to the share of spending property tax funds.
 
 Output: data/interim/costs.ndjson, one row per parcel.
 """
@@ -39,6 +41,12 @@ import os
 import sys
 import time
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pricing  # noqa: E402
+from pricing import (  # noqa: E402
+    ASSET_DIMS, CC, DECK, NONE, NQ, OV, SIG_O, SIG_T, items_total,
+)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, "data", "raw")
@@ -171,6 +179,29 @@ class EdgeGrid:
                         best = (seg, arc + t * math.sqrt(den), bulb)
         return best
 
+    def nearest_segment(self, px, py, reach, rank):
+        """Segment within reach with the highest rank(), nearest first among
+        equals; rank None excludes a segment. Class offsets are ignored. Only
+        the 3x3 block of cells is searched, so reach must not exceed the cell
+        size."""
+        c = self.cell
+        gx, gy = int(math.floor(px / c)), int(math.floor(py / c))
+        best_key, best = None, None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for i in self.bins.get((gx + dx, gy + dy), ()):
+                    ax, ay, bx, by, seg, _, _ = self.edges[i]
+                    r = rank(seg)
+                    if r is None:
+                        continue
+                    d2 = seg_distance2(px, py, ax, ay, bx, by)
+                    if d2 > reach * reach:
+                        continue
+                    key = (-r, d2)
+                    if best_key is None or key < best_key:
+                        best_key, best = key, seg
+        return best
+
 
 def bulb_frontage(points, min_radius):
     """Frontage around a dead end, from (angle, distance) samples about it.
@@ -189,8 +220,8 @@ def bulb_frontage(points, min_radius):
     return sweep * max(min(d for _, d in points), min_radius)
 
 
-def pipe_rate(rec, cfg):
-    """Annual renewal cost per foot of one sewer main, priced by diameter."""
+def pipe_diameter(rec, cfg):
+    """A main's diameter in inches, or its type's median where it is missing."""
     diameter = rec.get("LINE_HEIGHT_DIAMETER") or 0
     try:
         diameter = float(diameter)
@@ -198,29 +229,33 @@ def pipe_rate(rec, cfg):
         diameter = 0.0
     if diameter <= 0:
         diameter = cfg["default_diameter_in"].get(rec.get("LINE_TYPE"), 12)
-    cost = cfg["cost_base_per_ft"] + cfg["cost_per_inch_diameter"] * diameter
-    return cost / cfg["service_life_years"]
+    return diameter
 
 
-def load_streets(frame, cfg):
-    """Street segments and their edges in the grid, with dead ends marked.
+def load_streets(frame, cfg, st):
+    """Public Works street segments and their edges in the grid, with dead ends
+    marked.
 
     Renewal cost is priced later, once cul-de-sac bulbs have been measured:
-    the bulb's pavement is not in the centerline length.
+    the bulb's pavement is not in the centerline length. Freeways are priced
+    but kept out of the grid: no lot takes access from one, so none fronts it.
     """
     offsets = cfg["max_offset_ft"]
+    class_map = st["class_map"]
+    no_frontage = set(st["no_frontage_classes"])
     grid = EdgeGrid(cfg["grid_cell_ft"])
-    seg_class, seg_len = [], []
+    seg = {"class": [], "len": [], "lanes": [], "surface": [], "city": []}
     # Per segment: (first edge, its start point), (last edge, its end point)
     ends = []
-    path = os.path.join(RAW, "streets.ndjson")
+    path = os.path.join(RAW, "pw_streets.ndjson")
 
     with open(path) as f:
         for line in f:
             rec = json.loads(line)
-            cls = rec.get("ROADCLASS") or "Local"
+            cls = class_map.get(rec.get("mapa_classification") or "", "Local")
             off = offsets.get(cls, 60)
-            seg = len(seg_class)
+            frontable = cls not in no_frontage
+            i_seg = len(seg["class"])
             total = 0.0
             first = last = None
             for part in rec["geom"]:
@@ -230,17 +265,22 @@ def load_streets(frame, cfg):
                     length = math.hypot(bx - ax, by - ay)
                     # Chop long edges so grid bins stay tight.
                     n = max(1, int(length // 200))
-                    for j in range(n):
+                    for j in range(n if frontable else 0):
                         t0, t1 = j / n, (j + 1) / n
                         i = grid.add(ax + (bx - ax) * t0, ay + (by - ay) * t0,
                                      ax + (bx - ax) * t1, ay + (by - ay) * t1,
-                                     seg, off, total + t0 * length)
+                                     i_seg, off, total + t0 * length)
                         if first is None:
                             first = (i, ax, ay)
                         last = (i, bx, by)
                     total += length
-            seg_class.append(cls)
-            seg_len.append(total)
+            seg["class"].append(cls)
+            seg["len"].append(total)
+            seg["lanes"].append(rec.get("lane_count") or rec.get("lanes_by_width")
+                                or st["default_lanes"])
+            seg["surface"].append(st["surface_kind"].get(rec.get("surface_type") or "", "overlay"))
+            # Blank means maintained; only an explicit No is someone else's.
+            seg["city"].append(rec.get("city_maintained") != "No")
             ends.append((first, last))
 
     # A dead end is a segment end no other street touches. Points beyond it
@@ -248,36 +288,41 @@ def load_streets(frame, cfg):
     tol = cfg["dead_end_tolerance_ft"]
     reach = cfg["bulb_reach_ft"]
     dead = 0
-    for seg, (first, last) in enumerate(ends):
+    for s, (first, last) in enumerate(ends):
         if first is None:
             continue
         for vertex, (i, x, y) in ((0, first), (1, last)):
-            if not grid.touches(x, y, seg, tol):
+            if not grid.touches(x, y, s, tol):
                 grid.dead[(i, vertex)] = max(reach, grid.edges[i][5])
                 dead += 1
-    return grid, seg_class, seg_len, dead
+    return grid, seg, dead
 
 
 def load_sewer(frame, grid, cfg, n_segments):
-    """Annual sewer pipe renewal: local mains charged to the street segment
-    they run under, everything else into the shared pool.
+    """Sewer mains as feet and inch-feet (feet x diameter), which is all the
+    pricing needs: local mains on the street segment they run under,
+    everything else in shared lots.
 
     Trunk lines (interceptors, outfalls, force mains...) carry flow from whole
-    basins, so the street they happen to run under is not who they serve.
-    Local mains that are not under any street - rear-lot easements - cannot be
-    attributed to a frontage either. Both are shared by flow.
+    basins, so the street they happen to run under is not who they serve. The
+    same goes for any main wider than local_max_diameter_in: a 72-inch storm
+    drain under a side street carries rain from a whole watershed. Mains not
+    under any street - rear-lot easements - cannot be attributed to a frontage
+    either. All of these are shared by flow.
     """
     trunk_types = set(cfg["trunk_types"])
-    seg_sewer = [0.0] * n_segments
-    trunk = 0.0
-    unassigned = 0.0
+    local_max = cfg["local_max_diameter_in"]
+    local = ([0.0] * n_segments, [0.0] * n_segments)
+    big = ([0.0] * n_segments, [0.0] * n_segments)
+    shared = {"trunk": [0.0, 0.0], "off_street": [0.0, 0.0]}
     path = os.path.join(RAW, "sewer.ndjson")
 
     with open(path) as f:
         for line in f:
             rec = json.loads(line)
-            rate = pipe_rate(rec, cfg)
+            diameter = pipe_diameter(rec, cfg)
             is_trunk = rec.get("LINE_TYPE") in trunk_types
+            is_big = diameter > local_max
             for part in rec["geom"]:
                 pts = [frame(lon, lat) for lon, lat in part]
                 for k in range(len(pts) - 1):
@@ -285,25 +330,34 @@ def load_sewer(frame, grid, cfg, n_segments):
                     length = math.hypot(bx - ax, by - ay)
                     if length <= 0:
                         continue
-                    if is_trunk:
-                        trunk += length * rate
-                        continue
-                    hit = grid.nearest((ax + bx) / 2, (ay + by) / 2)
+                    hit = None if is_trunk else grid.nearest((ax + bx) / 2, (ay + by) / 2)
                     if hit is None:
-                        unassigned += length * rate
-                    else:
-                        seg_sewer[hit[0]] += length * rate
-    return seg_sewer, trunk, unassigned
+                        lot = shared["trunk" if is_trunk else "off_street"]
+                        lot[0] += length
+                        lot[1] += length * diameter
+                        continue
+                    ft, ft_in = big if is_big else local
+                    ft[hit[0]] += length
+                    ft_in[hit[0]] += length * diameter
+    return local, big, shared
 
 
-# ---- main -------------------------------------------------------------------
+def load_points(name):
+    """Point assets written by 04_fetch_infra.py, as dicts with lon and lat.
+    Missing file means the layer was not fetched; the caller says so."""
+    path = os.path.join(RAW, name)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return [json.loads(line) for line in f]
+
 
 def main():
     os.makedirs(INTERIM, exist_ok=True)
     assumptions, levies, budget_rows = load_config()
     frame = Frame(assumptions["projection"])
     gf = assumptions["general_fund"]
-    liability = assumptions["capital_liability"]
+    st = assumptions["streets"]
 
     # budget.csv must reconcile to the real levy or the cost basis is fiction.
     levy_cents = sum(r["amount"] for r in budget_rows if r["unit"] == "levy_cents")
@@ -321,17 +375,19 @@ def main():
 
     t0 = time.time()
     print("loading streets", flush=True)
-    grid, seg_class, seg_len, dead_ends = load_streets(frame, assumptions["frontage"])
+    grid, segs, dead_ends = load_streets(frame, assumptions["frontage"], st)
+    seg_class, seg_len = segs["class"], segs["len"]
     print(f"  {len(seg_class):,} segments, {sum(seg_len)/5280:,.0f} centerline miles, "
           f"{len(grid.edges):,} indexed edges, {dead_ends:,} dead ends  "
           f"[{time.time()-t0:.0f}s]", flush=True)
 
     print("assigning sewer mains to streets", flush=True)
-    seg_sewer, sewer_trunk, sewer_orphan = load_sewer(
+    (seg_pipe_ft, seg_pipe_in), (seg_big_ft, seg_big_in), sewer_shared_runs = load_sewer(
         frame, grid, sewer_cfg["pipe"], len(seg_class))
-    print(f"  ${sum(seg_sewer)/1e6:.1f}M/yr local main renewal placed, "
-          f"${sewer_trunk/1e6:.1f}M/yr trunk lines and "
-          f"${sewer_orphan/1e6:.1f}M/yr unplaced mains shared  "
+    print(f"  {sum(seg_pipe_ft)/5280:,.0f} miles of local main placed, "
+          f"{sum(seg_big_ft)/5280:,.0f} of large mains, "
+          f"{sewer_shared_runs['trunk'][0]/5280:,.0f} of trunk lines and "
+          f"{sewer_shared_runs['off_street'][0]/5280:,.0f} off the street grid  "
           f"[{time.time()-t0:.0f}s]", flush=True)
 
     print("counting address points", flush=True)
@@ -370,8 +426,6 @@ def main():
     multi_accts = set(demand["dwelling"]["multi_family_accounts"])
     sf_per_dwelling = demand["dwelling"]["sf_per_dwelling"]
     bulb_min_radius = assumptions["frontage"]["bulb_min_radius_ft"]
-    fees = sewer_cfg["fees"]
-    use = sewer_cfg["usage_ccf_per_month"]
 
     parcels = []
     seg_front = defaultdict(float)
@@ -468,16 +522,17 @@ def main():
             # unit; a multi-family complex per building; anything else is one
             # account whose flow scales with the people working there. Exempt
             # institutions pay sewer fees too - a fee is not a tax.
+            # ccf_kind indexes pricing.USAGE: house unit, apartment unit, employee.
             if account in multi_accts and n_units > 0:
-                accounts, ccf = n_bldgs, n_units * use["multi_family_unit"]
+                accounts, ccf_count, ccf_kind = n_bldgs, n_units, 1
             elif n_units > 0:
-                accounts, ccf = n_units, n_units * use["single_family_unit"]
+                accounts, ccf_count, ccf_kind = n_units, n_units, 0
             elif employees > 0:
-                accounts, ccf = 1, employees * use["per_employee"]
+                accounts, ccf_count, ccf_kind = 1, employees, 2
             else:
-                accounts, ccf = 0, 0.0
-            sewer_fee = 12 * (accounts * fees["customer_charge_monthly"]
-                              + ccf * fees["flow_charge_per_ccf"])
+                accounts, ccf_count, ccf_kind = 0, 0.0, 0
+            if not sewer_cfg["enabled"]:
+                accounts, ccf_count = 0, 0.0
 
             parcels.append({
                 "pin": pin,
@@ -491,31 +546,110 @@ def main():
                 "frontage_ft": frontage,
                 "bulb_ft": bulb_ft,
                 "hits": dict(hits),
-                "sewer_fee": sewer_fee if sewer_cfg["enabled"] else 0.0,
+                "fee_accounts": float(accounts),
+                "fee_ccf_count": float(ccf_count),
+                "fee_ccf_kind": ccf_kind,
+                "sewer_fee": pricing.sewer_fee(assumptions, accounts, ccf_count, ccf_kind),
             })
 
     print(f"  {len(parcels):,} parcels, {no_frontage:,} with no street within reach "
           f"({100*no_frontage/max(len(parcels),1):.1f}%), {on_bulb:,} measured around "
           f"a cul-de-sac or dead end  [{time.time()-t0:.0f}s]", flush=True)
 
-    # ---- street and pipe cost per segment -----------------------------------
+    # ---- street quantities per segment --------------------------------------
+    # Each city-maintained segment is measured, not priced: a vector of
+    # lane-feet by class and surface, bridge deck and signals (pricing.py lays
+    # it out). pricing.street_rates turns that into dollars - rebuild over life
+    # plus resurfacing over interval, the city's actual upkeep per lane-foot,
+    # and replacement over life for bridges and signals - so the map can
+    # re-price it when a value is edited. Unimproved and substandard streets
+    # are measured as upkeep only: their owners pay to bring them up to
+    # standard. None of this is scaled to what the budget spends.
+    #
     # Bulb pavement is not in the centerline, so each foot of bulb frontage
     # adds bulb_centerline_share of a foot of street - the ratio of a street
-    # with lots on both sides. Arterials and collectors then split in two: the
-    # cost of the same length of neighbourhood street, charged to the parcels
-    # that front it, and the premium for being a through road, pooled.
-    street = liability["street"]
-    cost_ft, life = street["replace_cost_per_ft"], street["service_life_years"]
-    network = street["network_share"]
+    # with lots on both sides. A city street nobody fronts (a freeway, a road
+    # past a park, a bridge span) still costs the city, so it goes to a
+    # citywide pool spread per foot of frontage. Arterials and collectors are
+    # measured twice: as they are, and as the two-lane neighbourhood street of
+    # the same length that the parcels lining them would otherwise need. The
+    # difference is the through-road premium.
+    n_seg = len(seg_class)
+    network = st["network_share"]
     local_cls = network["local_class"]
-    local_rate = cost_ft[local_cls] / life[local_cls]
+    is_city = segs["city"]
+    lanes = segs["lanes"]
+    surface = segs["surface"]
+    cls_index = {c: i for i, c in enumerate(pricing.CLASSES)}
+    local_lanes = st["default_lanes"]
     bulb_share = assumptions["frontage"]["bulb_centerline_share"]
-    seg_renewal, seg_local = [], []
-    for s, cls in enumerate(seg_class):
-        rate = cost_ft.get(cls, cost_ft[local_cls]) / life.get(cls, life[local_cls])
-        length = seg_len[s] + bulb_share * seg_bulb.get(s, 0.0)
-        seg_renewal.append(length * rate)
-        seg_local.append(length * min(rate, local_rate))
+
+    def lane_vector(cls, kind, lane_feet, q):
+        if kind == "none":
+            q[NONE] += lane_feet
+        else:
+            q[(OV if kind == "overlay" else CC) + cls_index[cls]] += lane_feet
+
+    seg_q = {}
+    for s in range(n_seg):
+        if not is_city[s]:
+            continue
+        q = [0.0] * NQ
+        L = seg_len[s] + bulb_share * seg_bulb.get(s, 0.0)
+        lane_vector(seg_class[s], surface[s], L * lanes[s], q)
+        seg_q[s] = q
+
+    # Bridges and signals snap to a city street within reach - signals to the
+    # biggest road at the intersection, bridges to the nearest. One that finds
+    # none is still the city's, and goes to the citywide pool.
+    class_rank = {c: r for r, c in enumerate(st["class_rank"])}
+    unplaced = [0.0] * NQ
+    asset_counts = {}
+    for kind in ("bridges", "signals"):
+        acfg = st[kind]
+        pts = load_points(acfg["file"])
+        if pts is None:
+            raise SystemExit(f"data/raw/{acfg['file']} missing: run build/04_fetch_infra.py")
+        if kind == "signals":
+            rank = lambda s: class_rank.get(seg_class[s], 0) if is_city[s] else None  # noqa: E731
+        else:
+            rank = lambda s: 0 if is_city[s] else None  # noqa: E731
+        placed = 0
+        for rec in pts:
+            if kind == "bridges":
+                dim, amount = DECK, rec["deck_sf"]
+            else:
+                dim, amount = (SIG_T if rec.get("type") == "TRAFFIC" else SIG_O), 1.0
+            x, y = frame(rec["lon"], rec["lat"])
+            s = grid.nearest_segment(x, y, acfg["snap_ft"], rank)
+            if s is None:
+                unplaced[dim] += amount
+            else:
+                seg_q[s][dim] += amount
+                placed += 1
+        asset_counts[kind] = {"count": len(pts), "placed": placed}
+        print(f"  {kind:8s} {len(pts):,}, {100 * placed / max(len(pts), 1):.0f}% placed "
+              f"on a city street", flush=True)
+
+    # Through roads as the neighbourhood street their lots would need.
+    seg_q_local = {}
+    for s, q in seg_q.items():
+        if seg_class[s] == local_cls:
+            seg_q_local[s] = q
+        else:
+            ql = [0.0] * NQ
+            L = seg_len[s] + bulb_share * seg_bulb.get(s, 0.0)
+            lane_vector(local_cls, surface[s], L * min(lanes[s], local_lanes), ql)
+            seg_q_local[s] = ql
+
+    city_q = [sum(q[k] for q in seg_q.values()) + unplaced[k] for k in range(NQ)]
+    city_lane_ft = pricing.lane_ft(city_q)
+    rates = pricing.street_rates(assumptions, city_lane_ft)
+    city_miles = sum(seg_len[s] for s in seg_q) / 5280
+    unfronted_miles = sum(seg_len[s] for s in seg_q if seg_front.get(s, 0.0) <= 0) / 5280
+    other_miles = sum(seg_len[s] for s in seg_front if seg_front[s] > 0 and not is_city[s]) / 5280
+    print(f"  {city_lane_ft/5280:,.0f} city lane-miles; upkeep "
+          f"${rates[1] * 5280:,.0f} per lane-mile a year", flush=True)
 
     # ---- weights ------------------------------------------------------------
     ew = demand["employee_service_weight"]
@@ -529,53 +663,73 @@ def main():
           f"({100 * total_units / census_units:.0f}%); multi-family {mf_units:,} "
           f"({100 * mf_units / max(total_units, 1):.0f}%)", flush=True)
     print(f"  residents {raw_residents:,.0f} -> {target:,} (x{calib:.3f})", flush=True)
-    # Only streets that Omaha parcels actually front. The street layer covers
-    # the whole county, so summing every segment would charge Omaha for Valley,
-    # Waterloo and the SIDs.
-    fronted = [s for s in seg_front if seg_front[s] > 0]
-    premium_pool = sum(seg_renewal[s] - seg_local[s] for s in fronted)
     frontage_total = sum(p["frontage_ft"] for p in parcels)
 
     for p in parcels:
         p["residents"] *= calib
         p["people"] = p["residents"] + ew * p["employees"]
-        # Frontage weight is the parcel's share of the renewal cost of the
-        # streets it actually fronts. Shared: priced as neighbourhood streets,
-        # plus a per-foot share of the through-road premium. Own: each road at
-        # its full cost. network_share picks which one the totals use; both
-        # are written out. Pipes are the same split, but stay in real dollars:
-        # they are charged against sewer fees, not against a property-tax pot.
-        shared = own = 0.0
-        pipes = 0.0
+        # Each parcel's share of what it fronts, by frontage, in two variants.
+        # Own: each road as it is. Shared: each road as a neighbourhood street,
+        # the premium going to the pool.
+        own = [0.0] * NQ
+        shared = [0.0] * NQ
+        pipe_ft = pipe_in = 0.0
         for seg, ft in p["hits"].items():
             share = ft / seg_front[seg]
-            shared += seg_local[seg] * share
-            own += seg_renewal[seg] * share
-            pipes += seg_sewer[seg] * share
-        if frontage_total > 0:
-            shared += premium_pool * p["frontage_ft"] / frontage_total
-        p["frontage_shared"] = shared
-        p["frontage_own"] = own
-        p["frontage_weight"] = shared if network["enabled"] else own
-        p["sewer_pipes"] = pipes if sewer_cfg["enabled"] else 0.0
+            pipe_ft += seg_pipe_ft[seg] * share
+            pipe_in += seg_pipe_in[seg] * share
+            if seg in seg_q:
+                qo, ql = seg_q[seg], seg_q_local[seg]
+                for k in range(NQ):
+                    own[k] += qo[k] * share
+                    shared[k] += ql[k] * share
+        p["q_own"] = own
+        p["q_shared"] = shared
+        p["pipe_ft"] = pipe_ft if sewer_cfg["enabled"] else 0.0
+        p["pipe_ft_in"] = pipe_in if sewer_cfg["enabled"] else 0.0
 
-    # Sewer breaks even citywide: whatever the fees do not spend on the local
-    # pipes in front of lots - treatment, trunk lines, unplaced mains, the CSO
-    # program, operations - is shared in proportion to each parcel's bill.
-    sewer_fees = sum(p["sewer_fee"] for p in parcels)
-    sewer_located = sum(p["sewer_pipes"] for p in parcels)
-    if sewer_cfg["enabled"] and sewer_located > sewer_fees:
-        raise SystemExit(
-            f"modelled sewer fees ${sewer_fees/1e6:.1f}M do not cover the local "
-            f"pipes they are charged with (${sewer_located/1e6:.1f}M)"
-        )
-    shared_rate = (sewer_fees - sewer_located) / sewer_fees if sewer_fees > 0 else 0.0
+    # What the parcels do not front - unfronted streets, unplaced assets and,
+    # when shared, the through-road premium - is priced from what is left of
+    # the city's quantities and spread per foot of frontage.
+    pools = {}
+    for key in ("own", "shared"):
+        rest = [city_q[k] - sum(p["q_" + key][k] for p in parcels) for k in range(NQ)]
+        pools[key] = {"q": rest, "dollars": sum(pricing.street_parts(rest, rates))}
+    premium_pool = pools["shared"]["dollars"] - pools["own"]["dollars"]
     for p in parcels:
-        p["sewer_shared"] = p["sewer_fee"] * shared_rate
-        p["c_sewer"] = p["sewer_pipes"] + p["sewer_shared"]
+        per_ft = p["frontage_ft"] / frontage_total if frontage_total > 0 else 0.0
+        for key in ("own", "shared"):
+            parts = list(pricing.street_parts(p["q_" + key], rates))
+            p["streets_" + key] = parts + [pools[key]["dollars"] * per_ft]
+        p["c_frontage_own"] = sum(p["streets_own"])
+        p["c_frontage_shared"] = sum(p["streets_shared"])
+        p["c_frontage"] = p["c_frontage_shared"] if network["enabled"] else p["c_frontage_own"]
+    street_parts = pricing.street_parts(city_q, rates)
+
+    # ---- sewer --------------------------------------------------------------
+    # Mains along the lot are the parcel's own; everything else is shared in
+    # proportion to each parcel's bill, i.e. its flow (pricing.sewer_pool).
+    seg_fronted = [seg_front.get(s, 0.0) > 0 for s in range(n_seg)]
+    mains = {
+        "big_ft": sum(seg_big_ft), "big_ft_in": sum(seg_big_in),
+        "unfronted_ft": sum(f for f, fr in zip(seg_pipe_ft, seg_fronted) if not fr),
+        "unfronted_ft_in": sum(f for f, fr in zip(seg_pipe_in, seg_fronted) if not fr),
+        "trunk_ft": sewer_shared_runs["trunk"][0], "trunk_ft_in": sewer_shared_runs["trunk"][1],
+        "off_street_ft": sewer_shared_runs["off_street"][0],
+        "off_street_ft_in": sewer_shared_runs["off_street"][1],
+    }
+    mains["total_ft"] = (sum(seg_pipe_ft) + mains["big_ft"] + mains["trunk_ft"]
+                         + mains["off_street_ft"])
+    sewer_fees = sum(p["sewer_fee"] for p in parcels)
+    sewer_pool, clean_rate, in_city, sewer_pool_parts = pricing.sewer_pool(
+        assumptions, mains, sewer_fees)
+    for p in parcels:
+        p["sewer_pipes"] = pricing.pipe_renewal(assumptions, p["pipe_ft"], p["pipe_ft_in"])
+        p["sewer_pipe_upkeep"] = p["pipe_ft"] * clean_rate
+        p["sewer_shared"] = sewer_pool * p["sewer_fee"] / sewer_fees if sewer_fees > 0 else 0.0
+        p["c_sewer"] = p["sewer_pipes"] + p["sewer_pipe_upkeep"] + p["sewer_shared"]
 
     totals = {
-        "frontage": sum(p["frontage_weight"] for p in parcels),
         "people": sum(p["people"] for p in parcels),
         "residents": sum(p["residents"] for p in parcels),
         "acres": sum(p["acres"] for p in parcels),
@@ -587,7 +741,6 @@ def main():
     # ---- allocate -----------------------------------------------------------
     gf_share = gf["property_tax_revenue"] / gf["total_appropriation"]
     buckets = defaultdict(float)
-    service_buckets = defaultdict(float)
     for row in budget_rows:
         if row["unit"] == "dollars":
             amount = row["amount"] * gf_share
@@ -596,78 +749,62 @@ def main():
             # for the per-$100 basis.
             amount = assessed_total * row["amount"] / 10000.0
         buckets[row["allocator"]] += amount
-        service_buckets[row["allocator"]] += amount
+    service_buckets = dict(buckets)
+    # The frontage rows - Public Works and the street and sewer share of debt
+    # service - are what property tax puts into infrastructure today. They set
+    # the infrastructure credit below; the cost charged is the lifecycle cost
+    # above, not this.
+    tax_to_infrastructure = buckets.pop("frontage", 0.0)
     service_total = sum(buckets.values())
 
-    # Streets only: sewer renewal is paid from sewer fees, and is in the sewer
-    # accounting above.
-    gross_liability = sum(seg_renewal[s] for s in fronted)
-    fronted_miles = sum(seg_len[s] for s in fronted) / 5280
-
-    liability_total = 0.0
-    if liability["enabled"]:
-        liability_total = max(0.0, gross_liability - liability["already_funded_annual"])
-        buckets["frontage"] += liability_total
-
     for p in parcels:
-        cost = 0.0
-        parts = {}
+        parts = {"frontage": p["c_frontage"]}
         for allocator, pot in buckets.items():
-            share = p.get(allocator + "_weight", p.get(allocator, 0.0))
-            if allocator == "parcels":
-                share = 1.0
+            share = 1.0 if allocator == "parcels" else p.get(allocator, 0.0)
             denom = totals[allocator]
-            v = pot * (share / denom) if denom > 0 else 0.0
-            parts[allocator] = v
-            cost += v
-        p["cost_total"] = cost
+            parts[allocator] = pot * (share / denom) if denom > 0 else 0.0
         p["cost_parts"] = parts
+        p["cost_total"] = sum(parts.values())
         # Four groups, because the cost-basis switch selects among them:
-        #   frontage = streets and the street renewal liability
+        #   frontage = streets: pavement, upkeep, bridges and signals
         #   people   = police, fire, parks, library - demand-driven
         #   flat     = general government and areal services
-        #   sewer    = sewer system share, set against the sewer fee
-        p["c_frontage"] = parts.get("frontage", 0.0)
+        #   sewer    = sewer system, set against the sewer fee
         p["c_people"] = parts.get("people", 0.0) + parts.get("residents", 0.0)
         p["c_flat"] = parts.get("parcels", 0.0) + parts.get("acres", 0.0)
         p["revenue"] = p["assessed"] * city_levy
-        p["net"] = p["revenue"] + p["sewer_fee"] - cost - p["c_sewer"]
-
-    # The same street pot under both keys, for the map's through-road toggle.
-    # Each sums to the pot, so switching moves cost between parcels without
-    # changing any citywide total.
-    for key in ("shared", "own"):
-        denom = sum(p["frontage_" + key] for p in parcels)
-        for p in parcels:
-            p["c_frontage_" + key] = (
-                buckets["frontage"] * p["frontage_" + key] / denom if denom > 0 else 0.0
-            )
+        p["net"] = p["revenue"] + p["sewer_fee"] - p["cost_total"] - p["c_sewer"]
 
     # ---- report + write -----------------------------------------------------
+    street_total = sum(p["c_frontage"] for p in parcels)
+    sewer_cost = sum(p["c_sewer"] for p in parcels)
     bulb_miles = sum(seg_bulb.values()) / 5280
+    fronted_miles = sum(seg_len[s] for s in seg_q if seg_front.get(s, 0.0) > 0) / 5280
     print()
-    print(f"  streets fronted    {len(fronted):,} of {len(seg_class):,} segments, "
-          f"{fronted_miles:,.0f} of {sum(seg_len)/5280:,.0f} centerline miles")
+    print(f"  city streets       {city_miles:,.0f} centerline miles, {fronted_miles:,.0f} "
+          f"fronted, {unfronted_miles:,.0f} fronted by no parcel (pooled); "
+          f"{other_miles:,.0f} miles of non-city street fronted (not charged)")
     print(f"  frontage closure   {frontage_total / (fronted_miles * 5280):.2f}x street "
-          f"length (~2x is both kerbs); {bulb_miles:,.0f} miles of it around "
-          f"dead ends")
-    print(f"  through-road premium ${premium_pool/1e6:,.1f}M/yr of "
-          f"${gross_liability/1e6:,.1f}M street renewal shared citywide"
-          + ("" if network["enabled"] else " (disabled)"))
+          f"length (~2x is both kerbs); {bulb_miles:,.0f} miles of it around dead ends")
+    print(f"  streets            ${street_total/1e6:,.1f}M/yr: pavement "
+          f"${street_parts[0]/1e6:,.1f}M, upkeep ${street_parts[1]/1e6:,.1f}M, "
+          f"bridges and signals ${street_parts[2]/1e6:,.1f}M")
+    print(f"    through-road premium ${premium_pool/1e6:,.1f}M, unfronted streets and "
+          f"unplaced assets ${pools['own']['dollars']/1e6:,.1f}M"
+          + ("" if network["enabled"] else "  (premium not shared)"))
+    print(f"  sewer              ${sewer_cost/1e6:,.1f}M/yr: mains along lots "
+          f"${sum(p['sewer_pipes'] for p in parcels)/1e6:,.1f}M renewal + "
+          f"${sum(p['sewer_pipe_upkeep'] for p in parcels)/1e6:,.1f}M cleaning, "
+          f"shared ${sewer_pool/1e6:,.1f}M")
+    print(f"    shared, city share {in_city:.3f} where systemwide: " + ", ".join(
+        f"{k} ${v/1e6:,.1f}M" for k, v in sewer_pool_parts.items()))
+    print(f"  sewer fees         ${sewer_fees/1e6:,.1f}M modelled (budget: "
+          f"${sewer_cfg['fee_revenue_systemwide']/1e6:,.1f}M systemwide)")
     print(f"  assessed           ${assessed_total/1e9:,.1f}B")
-    print(f"  property tax       ${property_tax/1e6:,.1f}M")
+    print(f"  property tax       ${property_tax/1e6:,.1f}M, of which "
+          f"${tax_to_infrastructure/1e6:,.1f}M funds infrastructure")
     print(f"  service cost       ${service_total/1e6:,.1f}M  "
           f"(GF x {gf_share:.4f} + levy funds)")
-    print(f"  street renewal     ${gross_liability/1e6:,.1f}M/yr gross, "
-          f"${liability['already_funded_annual']/1e6:,.1f}M already funded, "
-          f"${liability_total/1e6:,.1f}M unfunded")
-    print(f"  total cost         ${(service_total+liability_total)/1e6:,.1f}M")
-    print(f"  sewer fees         ${sewer_fees/1e6:,.1f}M modelled (budget: $231.9M "
-          f"systemwide, incl. customers outside the city)")
-    print(f"    local pipes      ${sewer_located/1e6:,.1f}M/yr charged by frontage")
-    print(f"    shared by flow   ${(sewer_fees-sewer_located)/1e6:,.1f}M/yr  (trunk "
-          f"${sewer_trunk/1e6:,.1f}M + unplaced ${sewer_orphan/1e6:,.1f}M renewal, "
-          f"treatment, CSO, operations)")
     print(f"  citywide net       ${sum(p['net'] for p in parcels)/1e6:,.1f}M")
     print(f"  residents modelled {totals['residents']:,.0f}  "
           f"employees {sum(p['employees'] for p in parcels):,.0f}")
@@ -683,12 +820,23 @@ def main():
                 "c_frontage": round(p["c_frontage"], 2),
                 "c_frontage_shared": round(p["c_frontage_shared"], 2),
                 "c_frontage_own": round(p["c_frontage_own"], 2),
+                "streets_shared": [round(v, 2) for v in p["streets_shared"]],
+                "streets_own": [round(v, 2) for v in p["streets_own"]],
                 "c_people": round(p["c_people"], 2),
                 "c_flat": round(p["c_flat"], 2),
                 "c_sewer": round(p["c_sewer"], 2),
                 "sewer_fee": round(p["sewer_fee"], 2),
                 "sewer_pipes": round(p["sewer_pipes"], 2),
+                "sewer_pipe_upkeep": round(p["sewer_pipe_upkeep"], 2),
                 "sewer_shared": round(p["sewer_shared"], 2),
+                # Quantities, for re-pricing in the browser (pricing.py).
+                "q_own": [round(v, 2) for v in p["q_own"]],
+                "q_shared": [round(v, 2) for v in p["q_shared"]],
+                "pipe_ft": round(p["pipe_ft"], 2),
+                "pipe_ft_in": round(p["pipe_ft_in"], 1),
+                "fee_accounts": p["fee_accounts"],
+                "fee_ccf_count": round(p["fee_ccf_count"], 3),
+                "fee_ccf_kind": p["fee_ccf_kind"],
                 "frontage_ft": round(p["frontage_ft"], 1),
                 "bulb_ft": round(p["bulb_ft"], 1),
                 "units": p["units"],
@@ -700,36 +848,35 @@ def main():
                 "parts": {k: round(v, 2) for k, v in p["cost_parts"].items()},
             }, separators=(",", ":")) + "\n")
 
-    # A basis charges only some pots, so it must credit only the slice of
+    # A basis charges only some costs, so it credits only the slice of
     # property tax that funds them - otherwise "infrastructure only" would
-    # compare every parcel's whole tax bill against a third of the spending and
-    # show the entire city comfortably in the black. The credit fraction is the
-    # selected share of SERVICE spending; the renewal liability is deliberately
-    # left uncredited, which is what puts the shortfall on the infrastructure
-    # basis where it belongs. Sewer is not property tax at all: a basis that
-    # includes it credits the sewer fee in full against the sewer cost.
+    # weigh every parcel's whole tax bill against streets and sewers alone.
+    # The credit is the share of property-tax spending that goes to each
+    # group today. Services cost exactly what property tax gives them, so that
+    # basis balances; streets and sewers cost what they cost, so any gap shows
+    # up on the bases that include them. Sewer is not property tax: a basis
+    # that includes it credits the sewer bill in full.
     svc_groups = {
         "frontage": service_buckets.get("frontage", 0.0),
         "people": service_buckets.get("people", 0.0) + service_buckets.get("residents", 0.0),
         "flat": service_buckets.get("parcels", 0.0) + service_buckets.get("acres", 0.0),
     }
     svc_all = sum(svc_groups.values()) or 1.0
+    pot_cost = {
+        "frontage": street_total,
+        "people": svc_groups["people"],
+        "flat": svc_groups["flat"],
+        "sewer": sewer_cost,
+    }
     sewer_pot = ["sewer"] if sewer_cfg["enabled"] else []
     bases = {
         "full": {"pots": ["frontage", "people", "flat"] + sewer_pot},
         "infrastructure": {"pots": ["frontage"] + sewer_pot},
         "services": {"pots": ["people", "flat"]},
     }
-    sewer_cost = sum(p["c_sewer"] for p in parcels)
     for name, b in bases.items():
         b["credit"] = sum(svc_groups[k] for k in b["pots"] if k != "sewer") / svc_all
-        b["cost"] = sum(
-            (buckets.get("frontage", 0.0) if k == "frontage" else
-             (buckets.get("people", 0.0) + buckets.get("residents", 0.0)) if k == "people" else
-             sewer_cost if k == "sewer" else
-             (buckets.get("parcels", 0.0) + buckets.get("acres", 0.0)))
-            for k in b["pots"]
-        )
+        b["cost"] = sum(pot_cost[k] for k in b["pots"])
         b["tax_revenue"] = property_tax * b["credit"]
         b["sewer_revenue"] = sewer_fees if "sewer" in b["pots"] else 0.0
         b["revenue"] = b["tax_revenue"] + b["sewer_revenue"]
@@ -742,33 +889,60 @@ def main():
                   name, b["credit"], b["sewer_revenue"] / 1e6, b["revenue"] / 1e6,
                   b["cost"] / 1e6, b["net"] / 1e6))
 
+    other = st["other_street_funding"]
     summary = {
         "bases": bases,
         "service_groups": svc_groups,
         "assessed_total": assessed_total,
         "property_tax": property_tax,
         "service_cost": service_total,
-        "liability_gross": gross_liability,
-        "liability_unfunded": liability_total,
         "gf_share": gf_share,
-        "street_miles_fronted": fronted_miles,
-        "street_miles_total": sum(seg_len) / 5280,
-        "buckets": dict(buckets),
         "parcels": len(parcels),
         "no_frontage": no_frontage,
         "on_bulb": on_bulb,
         "frontage_closure": frontage_total / (fronted_miles * 5280),
         "network_premium": premium_pool,
         "network_share_enabled": network["enabled"],
+        "streets": {
+            "total": street_total,
+            "pavement": street_parts[0],
+            "upkeep": street_parts[1],
+            "bridges_signals": street_parts[2],
+            "assets": asset_counts,
+            "citywide_pool": pools["own"]["dollars"],
+            "city_miles": city_miles,
+            "fronted_miles": fronted_miles,
+            "unfronted_miles": unfronted_miles,
+            "tax_credited": tax_to_infrastructure,
+            # Restricted street money that is not property tax, so not credited
+            # to any parcel: reported so the shortfall can be read against it.
+            "other_funding": items_total(other),
+        },
         "sewer": {
             "enabled": sewer_cfg["enabled"],
             "fees": sewer_fees,
-            "local_pipes": sewer_located,
-            "shared": sewer_fees - sewer_located,
-            "trunk_renewal": sewer_trunk,
-            "unplaced_renewal": sewer_orphan,
+            "cost": sewer_cost,
+            "local_pipes": sum(p["sewer_pipes"] for p in parcels),
+            "local_upkeep": sum(p["sewer_pipe_upkeep"] for p in parcels),
+            "shared": sewer_pool,
+            "in_city_share": in_city,
+            "pool_parts": sewer_pool_parts,
         },
-        "capital_liability_enabled": liability["enabled"],
+        # Everything the map needs to re-price the city from edited values,
+        # beside each parcel's own quantities (src/model.js). check is what
+        # the re-pricing must reproduce at the default values.
+        "model": {
+            "frontage_total": frontage_total,
+            "city_q": city_q,
+            "pool_q": {k: v["q"] for k, v in pools.items()},
+            "mains": mains,
+            "check": {
+                "streets_own": sum(p["c_frontage_own"] for p in parcels),
+                "streets_shared": sum(p["c_frontage_shared"] for p in parcels),
+                "sewer": sewer_cost,
+                "fees": sewer_fees,
+            },
+        },
     }
     with open(os.path.join(INTERIM, "cost_summary.json"), "w") as f:
         json.dump(summary, f, indent=1)

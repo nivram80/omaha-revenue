@@ -7,6 +7,7 @@ import {
   money, moneyFull,
 } from "./metrics.js";
 import { buildIndex, search } from "./search.js";
+import { loadModel, priceAll, withEdits, explain, get as getParam } from "./model.js";
 
 const CLASS_NAMES = {
   0: "Unknown", 1: "Residential", 2: "Recreational", 3: "Commercial",
@@ -31,6 +32,25 @@ const MERC = 20037508.342789244;
 // links to the parcel's record on the county's Beacon site instead.
 const ASSESSOR_RECORD =
   "https://beacon.schneidercorp.com/Application.aspx?AppID=1221&LayerID=37105&PageTypeID=4&KeyValue=";
+// Edited assumptions, kept in this browser only: { "path/in/assumptions": value }.
+const EDITS_KEY = "omaha-revenue:assumptions";
+
+function loadEdits() {
+  try {
+    const e = JSON.parse(localStorage.getItem(EDITS_KEY));
+    return e && typeof e === "object" ? e : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveEdits() {
+  try {
+    localStorage.setItem(EDITS_KEY, JSON.stringify(state.edits));
+  } catch {
+    // Private windows and blocked storage: edits last until reload.
+  }
+}
 
 const state = {
   phase: "boot",
@@ -54,6 +74,12 @@ const state = {
   query: "",
   results: [],
   active: 0,
+  edits: loadEdits(),
+  showAssumptions: false,
+  modelReady: false,
+  // Street and sewer totals and per-basis net, re-priced from the edits.
+  totals: null,
+  bases: null,
 };
 
 let renderer = null;
@@ -62,6 +88,9 @@ let attrs = null;
 let searchIndex = null;
 let needsDraw = true;
 let flight = null;
+let model = null;
+let defaultTotals = null;
+let repriceTimer = null;
 
 const hud = document.getElementById("hud");
 const canvas = document.getElementById("scene");
@@ -119,6 +148,13 @@ async function boot() {
       .then((r) => r.json())
       .then((a) => { attrs = a; searchIndex = buildIndex(a); ui(); })
       .catch(() => {});
+    // Quantities for re-pricing when an assumption is edited, and for
+    // explaining a parcel's costs line by line.
+    if (state.hasCost && state.manifest.model) {
+      loadModel(state.manifest)
+        .then((m) => { model = m; reprice(); state.modelReady = true; ui(); })
+        .catch((err) => console.warn("cost model:", err.message));
+    }
   } catch (err) {
     state.phase = "error";
     state.note = err.message;
@@ -168,8 +204,72 @@ function buildMeshes() {
 function applyBasis() {
   // The manifest carries each basis's pot list and credit fraction; metrics.js
   // carries the prose. Merge so a basis change is a single object swap.
-  const m = state.manifest.cost_model.bases[state.basisId];
+  const m = (state.bases || state.manifest.cost_model.bases)[state.basisId];
   data.basis = { ...BASES[state.basisId], ...m };
+}
+
+// ---- assumptions -----------------------------------------------------------
+
+/** Re-price every parcel's streets and sewers from the current edits. */
+function reprice() {
+  const defaults = model.defaults;
+  // Drop edits to values a rebuild has since removed.
+  for (const p of Object.keys(state.edits)) {
+    if (typeof getParam(defaults, p) !== "number") delete state.edits[p];
+  }
+  if (!defaultTotals) {
+    defaultTotals = priceAll(model, defaults, data);
+    const check = model.city.check;
+    const off = Math.abs(defaultTotals.sewer / check.sewer - 1)
+      + Math.abs(defaultTotals.streetsShared / check.streets_shared - 1);
+    if (off > 1e-3) console.warn("re-pricing does not reproduce the build", defaultTotals, check);
+  }
+  const edited = Object.keys(state.edits).length > 0;
+  state.totals = priceAll(model, edited ? withEdits(defaults, state.edits) : defaults, data);
+  state.bases = basesFrom(state.totals);
+  applyStreets();
+  applyBasis();
+  applyMetric();
+  ui();
+}
+
+/** Each basis's citywide cost, income and net at the given street and sewer totals. */
+function basesFrom(t) {
+  const c = state.manifest.cost_model;
+  const pot = {
+    frontage: t.streetsShared,
+    people: c.service_groups.people,
+    flat: c.service_groups.flat,
+    sewer: t.sewer,
+  };
+  return Object.fromEntries(Object.entries(c.bases).map(([id, b]) => {
+    const cost = b.pots.reduce((sum, k) => sum + pot[k], 0);
+    const sewerRevenue = b.pots.includes("sewer") ? t.fees : 0;
+    const revenue = b.tax_revenue + sewerRevenue;
+    return [id, { ...b, cost, sewer_revenue: sewerRevenue, revenue, net: revenue - cost }];
+  }));
+}
+
+function paramValue(path) {
+  return path in state.edits ? state.edits[path] : getParam(state.manifest.model.assumptions, path);
+}
+
+function setParam(path, raw, positive) {
+  if (String(raw).trim() === "") return;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0 || (positive && v === 0)) return;
+  if (v === getParam(state.manifest.model.assumptions, path)) delete state.edits[path];
+  else state.edits[path] = v;
+  saveEdits();
+  clearTimeout(repriceTimer);
+  repriceTimer = setTimeout(reprice, 250);
+}
+
+function resetEdits(paths) {
+  for (const p of paths || Object.keys(state.edits)) delete state.edits[p];
+  saveEdits();
+  if (model) reprice();
+  else ui();
 }
 
 function applyStreets() {
@@ -267,7 +367,10 @@ function attachInput() {
 
   window.addEventListener("keydown", (e) => {
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
-    if (e.key === "Escape") { state.showHelp = false; pin(-1); }
+    if (e.key === "Escape") {
+      if (state.showAssumptions) { state.showAssumptions = false; ui(); return; }
+      state.showHelp = false; pin(-1);
+    }
     if (e.key === "?") { state.showHelp = !state.showHelp; ui(); }
     if (e.key === "/") { e.preventDefault(); document.getElementById("find")?.focus(); }
     if (e.key === "r" || e.key === "R") { flight = null; renderer.frameExtent(); invalidate(); }
@@ -439,6 +542,7 @@ function view() {
     ${legend()}
     ${inspector()}
     ${state.showHelp ? helpCard() : nothing}
+    ${state.showAssumptions ? assumptionsCard() : nothing}
   `;
 }
 
@@ -465,10 +569,18 @@ function titleCard() {
       </dl>
       ${b ? html`<p class="shortfall ${Math.abs(b.net) < b.revenue * 0.01 ? "flat" : ""}">
         ${b.net < -b.revenue * 0.01
-          ? html`Citywide shortfall <b>${money(b.net)}</b> a year — the street
-              renewal the city is not funding.`
+          ? html`Citywide shortfall <b>${money(b.net)}</b> a year: what streets
+              and sewers cost to keep up, minus the tax and sewer fees that pay
+              for them.${b.pots.includes("frontage") && c.streets
+                ? html` Fuel and wheel taxes, not counted here, put
+                  ${money(c.streets.other_funding)} a year into streets.` : nothing}`
           : html`This basis balances citywide (<b>${money(b.net)}</b>), so the
               map shows purely who pays more or less than their share.`}
+      </p>` : nothing}
+      ${editCount() ? html`<p class="edited-note">
+        Using ${editCount()} edited ${editCount() === 1 ? "assumption" : "assumptions"}.
+        <button class="link inline" @click=${() => { state.showAssumptions = true; ui(); }}>review</button>
+        <button class="link inline" @click=${() => resetEdits()}>reset</button>
       </p>` : nothing}
       <p class="src">
         Tax year ${m.tax_year} · levy ${m.city_levy_per_100}/$100 ·
@@ -547,11 +659,16 @@ function controls() {
               <span>Share arterial cost citywide</span>
             </label>
             <p class="basis-note">${state.shareArterials
-              ? "Lots on an arterial or collector pay what a neighbourhood street " +
-                "would cost there. The extra for the bigger road is split over " +
-                "every foot of street frontage in the city."
+              ? "Lots on an arterial or collector pay what a two-lane " +
+                "neighbourhood street would cost there. The extra lanes, signals " +
+                "and bridges are split over every foot of street frontage in " +
+                "the city."
               : "Each road's full cost goes to the lots along it, so homes on " +
                 "arterials and collectors pay for the whole road."}</p>` : nothing}
+          ${state.manifest.model ? html`<button class="asm-open"
+            @click=${() => { state.showAssumptions = true; ui(); }}>
+            Assumptions and sources${editCount() ? html` <b>${editCount()} edited</b>` : nothing}
+          </button>` : nothing}
         </fieldset>` : nothing}
 
       <label class="field">
@@ -641,10 +758,10 @@ function inspector() {
   // attrs layout, set by build/03_build.py:
   // 0 pin, 1 address, 2 tax district, 3 year built, 4 improved sf,
   // 5 classification code, 6 revenue, 7 cost, 8 residents, 9 employees,
-  // 10 [frontage, people, residents, acres, parcels] cost breakdown,
-  // 11 [sewer bill, local pipes, shared sewer system] sewer breakdown
+  // 10 [frontage, people, residents, acres, parcels] cost breakdown.
+  // Streets and sewers are explained from the re-priced model instead.
   const parts = a ? a[10] : null;
-  const sewer = a ? a[11] : null;
+  const ex = state.hasCost && model?.priced ? explain(model, data, id, state.shareArterials) : null;
   const tax = state.hasCost ? taxUnder(data, id) : null;
   const fee = state.hasCost ? sewerFeeUnder(data, id) : 0;
   const revenue = state.hasCost ? revenueUnder(data, id) : null;
@@ -688,11 +805,24 @@ function inspector() {
           <div class="led-row"><span>Allocated cost</span>
             <b class="neg">−${moneyFull(cost)}</b></div>
           ${parts ? html`<ul class="breakdown">
-            ${pots.includes("frontage") ? html`<li>
-              <span>Streets</span><i>${moneyFull(data.cFrontage[id])}</i></li>` : nothing}
-            ${pots.includes("sewer") && sewer ? html`<li>
-              <span>Sewer pipes along the lot</span><i>${moneyFull(sewer[1])}</i></li>
-            <li><span>Sewer plants, trunk lines, upkeep</span><i>${moneyFull(sewer[2])}</i></li>` : nothing}
+            ${pots.includes("frontage") ? html`<li class="grp">
+              <span>Streets</span><i>${moneyFull(data.cFrontage[id])}</i></li>
+            ${ex ? html`
+            <li class="sub"><span>Rebuild and resurface</span><i>${moneyFull(ex.streets.pavement)}</i></li>
+            <li class="sub"><span>Upkeep: patching, snow, signals, lights</span>
+              <i>${moneyFull(ex.streets.upkeep)}</i></li>
+            ${ex.streets.assets >= 0.5 ? html`<li class="sub"><span>Bridges and signals</span>
+              <i>${moneyFull(ex.streets.assets)}</i></li>` : nothing}
+            <li class="sub"><span>${state.shareArterials
+              ? "Share of arterials, bridges, unfronted streets"
+              : "Share of bridges and unfronted streets"}</span>
+              <i>${moneyFull(ex.streets.pooled)}</i></li>` : nothing}` : nothing}
+            ${pots.includes("sewer") ? html`<li class="grp">
+              <span>Sewer</span><i>${moneyFull(data.cSewer[id])}</i></li>
+            ${ex ? html`
+            <li class="sub"><span>Replace mains along the lot</span><i>${moneyFull(ex.sewer.renewal)}</i></li>
+            <li class="sub"><span>Clean and repair them</span><i>${moneyFull(ex.sewer.cleaning)}</i></li>
+            <li class="sub"><span>Plants, trunk lines, operations</span><i>${moneyFull(ex.sewer.shared)}</i></li>` : nothing}` : nothing}
             ${pots.includes("people") ? html`<li>
               <span>Police, fire, benefits</span><i>${moneyFull(parts[1])}</i></li>
             <li><span>Parks, library</span><i>${moneyFull(parts[2])}</i></li>` : nothing}
@@ -705,6 +835,8 @@ function inspector() {
             ${a[8] ? `${a[8].toFixed(0)} residents` : ""}${a[8] && a[9] ? " · " : ""}${
               a[9] ? `${a[9].toFixed(0)} jobs` : ""} modelled
           </p>` : nothing}
+          ${pinned && ex && (pots.includes("frontage") || pots.includes("sewer"))
+            ? workings(ex, pots) : nothing}
         </div>` : nothing}
 
       ${flags & FLAG_TIF ? html`<p class="warn">
@@ -758,6 +890,162 @@ function aerial(id, pin) {
     </div>`;
 }
 
+function editCount() {
+  return Object.keys(state.edits).length;
+}
+
+const fixed2 = (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const whole = (v) => Math.round(v).toLocaleString("en-US");
+
+/** One parcel's street and sewer costs as quantity x rate, line by line. */
+function workings(ex, pots) {
+  const st = ex.streets;
+  const sw = ex.sewer;
+  const b = ex.bill;
+  const line = (label, value) => html`<div class="w-row"><span>${label}</span><i>${moneyFull(value)}</i></div>`;
+  return html`
+    <details class="workings">
+      <summary>How this is calculated</summary>
+      ${pots.includes("frontage") ? html`
+        <h4>Streets</h4>
+        ${st.lanes.map((l) => line(`${whole(l.lf)} lane-ft of ${l.label} × $${fixed2(l.rate)} rebuild and resurface`, l.cost))}
+        ${line(`${whole(st.laneFt)} lane-ft × $${fixed2(st.upkeepRate)} upkeep`, st.upkeep)}
+        ${st.deck >= 1 ? line(`${whole(st.deck)} sq ft of bridge deck × $${fixed2(st.deckRate)}`, st.deck * st.deckRate) : nothing}
+        ${st.signals >= 0.01 ? line(`${fixed2(st.signals)} traffic signals × $${whole(st.signalRate)}`, st.signals * st.signalRate) : nothing}
+        ${st.otherSignals >= 0.01 ? line(`${fixed2(st.otherSignals)} other signals × $${whole(st.otherSignalRate)}`, st.otherSignals * st.otherSignalRate) : nothing}
+        ${line(`${whole(st.frontage)} ft of frontage × $${fixed2(st.poolRate)} citywide share`, st.pooled)}
+        <p class="w-note">Lane-feet are this lot's share of the street in front:
+          frontage times lanes, split with the lots across the street${state.shareArterials
+            ? ", and priced as a two-lane neighbourhood street on arterials" : ""}.
+          Rates are dollars a year per lane-foot.</p>` : nothing}
+      ${pots.includes("sewer") ? html`
+        <h4>Sewer</h4>
+        ${sw.pipeFt >= 1 ? line(`${whole(sw.pipeFt)} ft of ${Math.round(sw.diameter)}-inch main × $${fixed2(sw.renewalRate)} replacement`, sw.renewal) : nothing}
+        ${sw.pipeFt >= 1 ? line(`${whole(sw.pipeFt)} ft × $${fixed2(sw.cleanRate)} cleaning`, sw.cleaning) : nothing}
+        ${line(`${moneyFull(sw.fee)} bill ÷ ${money(sw.feesTotal)} of city bills × ${money(sw.pool)} shared system`, sw.shared)}
+        <h4>Sewer bill</h4>
+        ${line(`12 × ($${b.customer} × ${whole(b.accounts)} ${b.accounts === 1 ? "account" : "accounts"}
+          + ${Number.isInteger(b.count) ? whole(b.count) : fixed2(b.count)} ${b.kind}${b.count === 1 ? "" : "s"} × ${b.usage} CCF × $${b.flow})`, sw.fee)}` : nothing}
+      <button class="link" @click=${() => { state.showAssumptions = true; ui(); }}>
+        Where these rates come from</button>
+    </details>`;
+}
+
+const POSITIVE_UNITS = new Set(["years"]);
+
+function paramInput(p, label) {
+  const defaults = state.manifest.model.assumptions;
+  const d = getParam(defaults, p.path);
+  const v = paramValue(p.path);
+  const edited = p.path in state.edits;
+  const positive = POSITIVE_UNITS.has(p.unit) || p.path === "sewer/fee_revenue_systemwide";
+  return html`<input type="number" class="num ${edited ? "edited" : ""}" step="any" min="0"
+    .value=${String(v)} ?disabled=${!state.modelReady} aria-label=${label}
+    title=${edited ? `Default: ${d.toLocaleString("en-US")}` : ""}
+    @input=${(e) => setParam(p.path, e.target.value, positive)} />`;
+}
+
+function paramHint(p) {
+  const d = getParam(state.manifest.model.assumptions, p.path);
+  const v = paramValue(p.path);
+  const big = p.unit.startsWith("$") && v >= 10000 ? money(v) : "";
+  return html`<span class="hint">${big}${p.path in state.edits
+    ? html`${big ? " · " : ""}was ${p.unit.startsWith("$") && d >= 10000 ? money(d) : d.toLocaleString("en-US")}
+      <button class="reset" title="Reset" @click=${() => resetEdits([p.path])}>↺</button>` : nothing}</span>`;
+}
+
+function sourceLinks(ids, sources) {
+  if (!ids || !ids.length) return nothing;
+  return html`<span class="srcs">${ids.map((id, k) => html`${k ? "; " : ""}<a href=${sources[id].url}
+    target="_blank" rel="noopener">${sources[id].title}</a>`)}</span>`;
+}
+
+function groupPaths(g) {
+  if (g.params) return g.params.map((p) => p.path);
+  return g.table.rows.flatMap((row) => g.table.cols.map((c) => c.path.replace("{row}", row)));
+}
+
+function assumptionsCard() {
+  const meta = state.manifest.model.meta;
+  const c = state.manifest.cost_model;
+  const t = state.totals;
+  const d = defaultTotals;
+  const infra = state.bases?.infrastructure;
+  const infraDefault = d ? basesFrom(d).infrastructure : null;
+  const was = (now, then) => (state.modelReady && Math.abs(now - then) > 0.5
+    ? html`<em>was ${money(then)}</em>` : nothing);
+  const close = () => { state.showAssumptions = false; ui(); };
+
+  return html`
+    <div class="overlay soft" @click=${close}>
+      <div class="card asm" @click=${(e) => e.stopPropagation()}>
+        <button class="close" @click=${close}>×</button>
+        <h1>Assumptions and sources</h1>
+        <p class="asm-intro">Every number behind the street and sewer costs: what it
+          is, how it was worked out, and where it came from. Edit any of them and the
+          map re-prices all ${state.manifest.parcels.toLocaleString()} parcels. Edits are
+          kept in this browser only.</p>
+        ${t ? html`<dl class="asm-totals">
+          <div><dt>Streets</dt><dd>${money(t.streetsShared)}${was(t.streetsShared, d.streetsShared)}</dd></div>
+          <div><dt>Sewers</dt><dd>${money(t.sewer)}${was(t.sewer, d.sewer)}</dd></div>
+          <div><dt>Tax share + sewer bills</dt><dd>${money(infra.revenue)}${was(infra.revenue, infraDefault.revenue)}</dd></div>
+          <div><dt>Citywide net</dt><dd class=${infra.net < 0 ? "neg" : "pos"}>${money(infra.net)}${was(infra.net, infraDefault.net)}</dd></div>
+        </dl>` : html`<p class="note">Loading the cost model…</p>`}
+        ${editCount() ? html`<button class="link" @click=${() => resetEdits()}>
+          ${editCount() === 1 ? "Reset the edit" : `Reset all ${editCount()} edits`}</button>` : nothing}
+
+        ${meta.groups.map((g) => html`
+          <section class="asm-group">
+            <header>
+              <h2>${g.title}</h2>
+              ${groupPaths(g).some((p) => p in state.edits) ? html`<button class="link inline"
+                @click=${() => resetEdits(groupPaths(g))}>reset section</button>` : nothing}
+            </header>
+            <p class="asm-what">${g.what}</p>
+            <p class="asm-how">${g.how}</p>
+            ${g.table ? html`
+              <div class="asm-table-wrap"><table class="asm-table">
+                <thead><tr><th></th>${g.table.cols.map((col) => html`
+                  <th>${col.label}<small>${col.unit}</small></th>`)}</tr></thead>
+                <tbody>${g.table.rows.map((row) => html`<tr>
+                  <th>${row}</th>
+                  ${g.table.cols.map((col) => {
+                    const p = { path: col.path.replace("{row}", row), unit: col.unit };
+                    return html`<td>${paramInput(p, `${row} ${col.label}`)}</td>`;
+                  })}
+                </tr>`)}</tbody>
+              </table></div>` : html`
+              <div class="asm-params">${g.params.map((p) => html`
+                <label class="asm-param">
+                  <span class="lbl">${p.label}</span>
+                  ${paramInput(p, p.label)}
+                  <span class="unit">${p.unit}</span>
+                  ${paramHint(p)}
+                </label>`)}</div>`}
+            <ul class="asm-notes">${g.notes.map((n) => html`<li>
+              ${n.estimate ? html`<span class="tag">estimate</span>` : nothing}
+              ${n.text} ${sourceLinks(n.sources, meta.sources)}</li>`)}</ul>
+          </section>`)}
+
+        <section class="asm-group">
+          <header><h2>Fixed in the build</h2></header>
+          <p class="asm-how">These change what is measured rather than what it costs,
+            so changing them means editing <code>config/assumptions.json</code> and
+            re-running <code>build/05_costs.py</code>.</p>
+          <ul class="asm-notes">${meta.fixed.map((f) => html`<li>
+            ${f.estimate ? html`<span class="tag">estimate</span>` : nothing}
+            <b>${f.label}: ${fixedValue(f, c)}.</b> ${f.how} ${sourceLinks(f.sources, meta.sources)}</li>`)}</ul>
+        </section>
+      </div>
+    </div>`;
+}
+
+function fixedValue(f, c) {
+  if (f.path === "_credit") return `${(c.bases.infrastructure.credit * 100).toFixed(1)}%`;
+  if (f.path === "_services") return `${money(c.service_cost)} a year`;
+  return `${getParam(state.manifest.model.assumptions, f.path)} ${f.unit || ""}`.trim();
+}
+
 function helpCard() {
   return html`
     <div class="overlay soft" @click=${() => { state.showHelp = false; ui(); }}>
@@ -785,8 +1073,10 @@ function helpCard() {
         </p>
         <p class="caveat">
           The cost side is a <b>model</b>, not a measurement — no city publishes
-          infrastructure cost per property. Totals are pinned to the 2026 adopted
-          budget and every assumption lives in <code>config/</code>. Sales tax is
+          infrastructure cost per property. Streets and sewers are priced at what
+          they cost to keep up over their lives, not what the budget spends on
+          them; police, fire and other services are pinned to the 2026 adopted
+          budget. Every assumption lives in <code>config/</code>. Sales tax is
           excluded by scope, so retail parcels read worse here than on the city's
           actual books.
         </p>
