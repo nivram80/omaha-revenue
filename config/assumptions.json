@@ -7,10 +7,13 @@
     "",
     "Streets and sewers are priced at what they cost to keep up over their",
     "lives, not at what the budget spends on them, so the bases that include",
-    "them can show a citywide shortfall. The most consequential inputs are the",
-    "street reconstruction lives and pricing sewer renewal as open-cut",
-    "replacement rather than lining. Services (police, fire, parks, general",
-    "government) are allocated from the 2026 budget and balance by construction."
+    "them can show a citywide gap. The most consequential inputs are the",
+    "street reconstruction lives and how much sewer renewal is lining rather",
+    "than open-cut replacement. Defaults are the middle ('Typical') of the",
+    "Low / Typical / High range in config/parameters.json; the map's cost",
+    "estimate switches pick between them. Services (police, fire, parks,",
+    "general government) are allocated from the 2026 budget and balance by",
+    "construction."
   ],
   "projection": {
     "_": "Local planar frame in feet, WGS84 radii evaluated at Omaha's latitude. Good to ~0.2% over a 30 km city, i.e. inches on a 70 ft frontage.",
@@ -51,7 +54,18 @@
       "bulb_centerline_share prices the bulb's pavement, which the centerline",
       "does not include: each foot of bulb frontage adds half a foot of street,",
       "the same ratio as a street with lots on both sides. That keeps cul-de-sac",
-      "lots paying the same per foot as everyone else rather than less."
+      "lots paying the same per foot as everyone else rather than less.",
+      "",
+      "A parcel fronts a street only where no other parcel stands between it and",
+      "the street: along each side of each street, a boundary sample is dropped",
+      "when another parcel has one within occlude_window_ft of it along the street",
+      "and more than occlude_depth_ft closer. Arterial reach is wide enough that",
+      "the lots behind a corner lot otherwise took shares of its side street.",
+      "The window is a little over half the sample spacing, so a fronting lot",
+      "always has a sample in it.",
+      "A lot line nearer the centerline than occlude_min_ft would be in the",
+      "pavement: the centerline is drawn off the street there (Sprague St near",
+      "96th runs ~40 ft into the north row), so such a line hides nothing."
     ],
     "sample_ft": 40,
     "max_offset_ft": {
@@ -63,6 +77,9 @@
     "bulb_reach_ft": 90,
     "bulb_min_radius_ft": 25,
     "bulb_centerline_share": 0.5,
+    "occlude_window_ft": 25,
+    "occlude_depth_ft": 20,
+    "occlude_min_ft": 15,
     "dead_end_tolerance_ft": 15,
     "grid_cell_ft": 300
   },
@@ -78,8 +95,10 @@
       "So multi-family units come from BLDG_SF x NUMBLDGS instead. sf_per_dwelling is",
       "1250 rather than a true 900 gross sf/unit because NUMBLDGS also counts garages,",
       "clubhouses and maintenance sheds; the inflated divisor absorbs them. That lands",
-      "at ~212,400 total dwellings against a census count near 216,000, which is the",
-      "check that this is calibrated rather than invented.",
+      "at ~208,600 total dwellings against a census count near 216,000, which is the",
+      "check that this is calibrated rather than invented. Address points count only",
+      "where the assessor has a building: vacant lots and the land-only strips beside",
+      "row houses carry points too.",
       "",
       "Household size is split by tenure. Applying the citywide 2.42 average to",
       "apartments overstated their population by about 17% and understated",
@@ -186,12 +205,12 @@
       "Freeway": 400
     },
     "reconstruct_life_years": {
-      "_": "ESTIMATE. FHWA puts conventional concrete at 20-40 years and long-life concrete at 40+; Omaha still runs 1950s-70s concrete with panel repair and overlays.",
-      "Local": 50,
-      "Collector": 45,
-      "Minor Arterial": 40,
-      "Major Arterial": 40,
-      "Freeway": 40
+      "_": "ESTIMATE, the middle of a range. Years between full rebuilds, with resurfacing in between. Well-maintained city streets average 50-60 years (Golden Valley MN pavement policy); Omaha still runs 1950s-70s concrete with panel repair and overlays. Low 80/70/60, High 50/45/40 in config/parameters.json.",
+      "Local": 60,
+      "Collector": 55,
+      "Minor Arterial": 50,
+      "Major Arterial": 50,
+      "Freeway": 50
     },
     "resurface_per_lane_ft": {
       "overlay": {
@@ -277,9 +296,23 @@
     },
     "sidewalks": "Not charged. Abutting owners pay to repair sidewalks (OMC 26-41 to 26-44). The city's ADA ramps are built with resurfacing and are in its all-in cost.",
     "other_street_funding": {
-      "_": "Street Allocation Fund revenue restricted to street work that is not property tax, so it is not credited to any parcel (2026 adopted budget).",
-      "Fuel tax": 63623388,
-      "Wheel tax": 22959543
+      "_": [
+        "Money the city puts into streets that is not property tax, from the",
+        "2026 adopted budget: the Street Allocation Fund's fuel and wheel taxes,",
+        "and the part of the General Fund's street spending (Public Works and",
+        "debt service, the rows budget.csv charges by frontage) paid by sales",
+        "tax and other non-property revenue, i.e. x (1 - 123,425,531 /",
+        "562,783,754). No parcel pays it directly, so it is credited to every",
+        "street in proportion to its cost: it covers the same share of every",
+        "parcel's street bill. Borrowing is not counted: bonds are repaid from",
+        "the debt-service levy, which is already property tax."
+      ],
+      "items": {
+        "Fuel tax (Highway Allocation)": 63623388,
+        "Wheel tax": 22959543,
+        "General Fund Public Works, non-property-tax share": 29343380,
+        "General Fund debt service, non-property-tax share": 9402679
+      }
     }
   },
   "sewer": {
@@ -318,16 +351,19 @@
     },
     "pipe": {
       "_": [
-        "Open-cut replacement, all-in, dollars per foot = base + per_inch x",
-        "diameter: Carollo's 2024 unit cost study for Phoenix (8-inch $350-400,",
-        "24-inch $770-940, 36-inch $1,230-1,550, construction only) plus ~20%",
-        "engineering, checked against Omaha projects (24th & Ogden storm, Cole",
+        "Renewal is a blend of open-cut replacement and lining from inside",
+        "(cured-in-place pipe). Replacement, all-in, dollars per foot = base +",
+        "per_inch x diameter: Carollo's 2024 unit cost study for Phoenix (8-inch",
+        "$350-400, 24-inch $770-940, 36-inch $1,230-1,550, construction only) plus",
+        "~20% engineering, checked against Omaha projects (24th & Ogden storm, Cole",
         "Creek). Life 75 years, inside the 50-100 Omaha's Wastewater Collection",
-        "System Design Manual gives gravity pipe. Lining is far cheaper and would",
-        "stretch that life; this prices replacement. Priced by diameter because",
-        "LINE_TYPE is not a size: 'Collector' mains are 8-inch, the smallest",
-        "public pipe, while 'Sewer' lines run 15-96 inches. default_diameter_in",
-        "fills missing diameters with each type's median.",
+        "System Design Manual gives gravity pipe. Lining: ESTIMATE $12 per inch of",
+        "diameter per foot over 50 years (Lawrence KS 2019 bid: 24-inch CIPP at",
+        "$97.75/ft against $700-800 open-cut). lined_percent is the share of",
+        "renewal done by lining: ESTIMATE, Low 75 / Typical 50 / High 0.",
+        "Priced by diameter because LINE_TYPE is not a size: 'Collector' mains are",
+        "8-inch, the smallest public pipe, while 'Sewer' lines run 15-96 inches.",
+        "default_diameter_in fills missing diameters with each type's median.",
         "",
         "trunk_types carry flow from whole basins, so they are shared like",
         "treatment rather than charged to the street above. So is any main wider",
@@ -338,6 +374,9 @@
       "cost_base_per_ft": 150,
       "cost_per_inch_diameter": 35,
       "service_life_years": 75,
+      "lined_percent": 50,
+      "lining_cost_per_inch_diameter": 12,
+      "lining_life_years": 50,
       "local_max_diameter_in": 18,
       "default_diameter_in": {
         "Collector": 8,

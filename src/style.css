@@ -62,6 +62,9 @@ html, body {
   top: 18px;
   left: 18px;
   width: 330px;
+  /* Clear of the legend, which sits under it. */
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
   padding: 16px 18px 14px;
 }
 
@@ -706,47 +709,31 @@ kbd {
   padding: 24px 28px 28px;
 }
 .asm-intro { max-width: 680px; }
-
-.asm-totals {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin: 18px 0 6px;
+/* The panel scrolls under its title bar, so the close button stays in reach. */
+.card.asm { padding-top: 0; }
+.asm-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -28px;
+  padding: 18px 28px 12px;
+  border-bottom: 1px solid var(--panel-edge);
+  background: #16181c;
 }
-.asm-totals div {
-  padding: 10px 12px;
-  border: 1px solid var(--panel-edge);
-  border-radius: 8px;
-}
-.asm-totals dt {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.asm-totals dd {
-  margin: 4px 0 0;
-  font-size: 17px;
-  font-weight: 620;
-  font-variant-numeric: tabular-nums;
-}
-.asm-totals dd em {
-  display: block;
-  margin-top: 2px;
-  font-size: 10.5px;
-  font-style: normal;
-  font-weight: 400;
-  color: var(--ink-3);
-}
-.asm-totals .neg { color: var(--warn); }
-.asm-totals .pos { color: var(--good); }
+.asm-head .close { position: static; flex: none; }
+.card.asm .asm-intro { margin-top: 14px; }
+.asm-group, .money, .movers { scroll-margin-top: 64px; }
 
 .asm-group {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--panel-edge);
 }
-.asm-group header { display: flex; align-items: baseline; gap: 8px; }
+.asm-group header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .asm-group h2 {
   margin: 0;
   font-size: 15px;
@@ -791,6 +778,7 @@ kbd {
 .asm-params { display: grid; gap: 6px; margin-top: 12px; }
 .asm-param {
   display: grid;
+  min-height: 28px;
   grid-template-columns: minmax(180px, 300px) 120px 110px 1fr;
   align-items: center;
   gap: 10px;
@@ -810,17 +798,8 @@ kbd {
   cursor: pointer;
 }
 
-.asm-notes {
-  margin: 12px 0 0;
-  padding: 0 0 0 16px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--ink-2);
-}
-.asm-notes li + li { margin-top: 6px; }
-.asm-notes b { color: var(--ink); font-weight: 600; }
 .srcs { color: var(--ink-3); }
-.srcs a, .asm-notes a { color: var(--accent); text-decoration: none; }
+.srcs a { color: var(--accent); text-decoration: none; }
 .srcs a:hover { text-decoration: underline; }
 .tag {
   display: inline-block;
@@ -857,11 +836,473 @@ kbd {
 .w-note { margin: 6px 0 0; line-height: 1.5; }
 
 @media (max-width: 720px) {
-  .asm-totals { grid-template-columns: 1fr 1fr; }
   .asm-param { grid-template-columns: 1fr 110px; }
   .asm-param .unit, .asm-param .hint { grid-column: 1 / -1; }
-  .card.asm { padding: 20px 16px; }
+  .card.asm { padding: 0 16px 20px; }
+  .asm-head { margin: 0 -16px; padding: 14px 16px 10px; }
 }
 
 /* The workings make a pinned panel tall; scroll it rather than the page. */
 .inspect.pinned { max-height: calc(100vh - 36px); overflow-y: auto; }
+
+/* ---- info tips (src/tip.js) ------------------------------------------------- */
+
+.tip { display: inline-flex; vertical-align: middle; margin-left: 5px; }
+.tip-btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid rgba(57, 135, 229, 0.55);
+  border-radius: 50%;
+  background: rgba(57, 135, 229, 0.12);
+  color: #86b6ef;
+  font: italic 600 10px/1 Georgia, "Times New Roman", serif;
+  cursor: help;
+}
+/* A 25px hit area around a 15px mark. */
+.tip-btn::before { content: ""; position: absolute; inset: -5px; }
+.tip-btn:hover, .tip.open .tip-btn { background: rgba(57, 135, 229, 0.34); color: #fff; }
+.tip-btn.tip-est { border-color: rgba(224, 86, 46, 0.6); background: rgba(224, 86, 46, 0.14); color: #f08a6a; }
+.tip-btn.tip-est:hover, .tip.open .tip-btn.tip-est { background: rgba(224, 86, 46, 0.32); color: #fff; }
+.tip-btn.demo { vertical-align: -2px; cursor: default; }
+
+.tip-pop {
+  display: none;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: min(330px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: #1b1e23;
+  color: var(--ink-2);
+  font: 400 12px/1.5 var(--font);
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  z-index: 50;
+}
+.tip.open > .tip-pop { display: block; }
+.tip-pop p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+.tip-pop p + p { margin-top: 7px; }
+.tip-pop b { color: var(--ink); font-weight: 600; }
+.tip-pop .srcs { display: block; margin-top: 3px; font-size: 11px; }
+.tip-pop .srcs a { color: #86b6ef; }
+.tip-pop .srcs a:hover { text-decoration: underline; }
+.tip-pop .tag { margin-right: 6px; }
+.tip-pop code { font-size: 11px; color: var(--ink); }
+.tip-pop .tip-foot { color: var(--ink-3); font-size: 11px; }
+@supports not selector(:popover-open) {
+  .tip { position: relative; }
+  .tip-pop { position: absolute; top: calc(100% + 6px); left: -8px; }
+}
+
+/* Headings that take focus only so the panel can move a keyboard user to them. */
+[tabindex="-1"]:focus { outline: none; }
+
+/* ---- cost estimate switches ---------------------------------------------- */
+
+.estimates {
+  margin: 10px 0 0;
+  padding: 9px 0 0;
+  border-top: 1px solid var(--panel-edge);
+}
+.est-top { display: flex; align-items: center; }
+.est-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.est-toggle::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.15s ease;
+}
+.est-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.est-toggle:hover { color: var(--ink-2); }
+.est-body { display: grid; gap: 7px; margin-top: 7px; }
+.est-body[hidden] { display: none; }
+.est-body > .link { margin-top: 0; justify-self: start; }
+
+.est {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  grid-template-areas: "name seg" "val seg";
+  align-items: center;
+  column-gap: 10px;
+}
+.est-name {
+  grid-area: name;
+  display: flex;
+  align-items: center;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.est-val {
+  grid-area: val;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.est-val em { font-style: normal; color: var(--accent); }
+.est .seg { grid-area: seg; }
+
+/* A pill with a thumb that slides to the chosen level. Native radios inside,
+   so arrow keys move between levels and screen readers announce a group. */
+.seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), 1fr);
+  padding: 2px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.seg.custom { border-style: dashed; }
+.seg-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--n));
+  border-radius: 999px;
+  background: #256abf;
+  transform: translateX(calc(var(--at) * 100%));
+  transition: transform 0.18s ease;
+}
+.seg.custom .seg-thumb { opacity: 0; }
+.seg-opt {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 3px 2px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.seg-opt:hover { color: var(--ink); }
+.seg-opt.on { color: #fff; font-weight: 600; }
+.seg-opt input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 1px; }
+.seg-opt:has(input:disabled) { cursor: progress; opacity: 0.55; }
+
+/* ---- assumptions: the year's books and what moves them --------------------- */
+
+.money, .movers {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+}
+.movers { margin-top: 10px; }
+.money h2, .movers h2 { margin: 0; font-size: 13.5px; font-weight: 620; }
+.money-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 30px;
+  margin-top: 12px;
+}
+.money h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.money h3 b {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 620;
+  letter-spacing: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.money h3 em, .money-net em {
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+}
+.money ul, .movers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.money li {
+  display: grid;
+  grid-template-columns: 196px 1fr 46px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.money li b {
+  text-align: right;
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.led-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.led-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.led-track { height: 8px; }
+.led-bar { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; }
+.led-bar.cost { background: #e0562e; }
+.led-bar.income { background: #0fa87f; }
+.card .money-net { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.money-net b { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.card .mv-note { margin: 4px 0 10px; font-size: 11.5px; color: var(--ink-3); }
+.movers li {
+  display: grid;
+  grid-template-columns: 196px 1fr 116px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.mv-track { position: relative; height: 16px; }
+.mv-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--panel-edge);
+}
+.mv-now { position: absolute; top: -3px; bottom: -3px; width: 1px; background: rgba(255, 255, 255, 0.32); }
+.mv-range {
+  position: absolute;
+  top: 5px;
+  height: 6px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.mv-dot {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.mv-dot.on {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: var(--ink);
+  box-shadow: 0 0 0 2px #14161a, 0 0 0 3.5px var(--ink-2);
+}
+.mv-vals {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- assumptions: groups ---------------------------------------------------- */
+
+.asm-sum {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.asm-level { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.asm-level .seg { flex: none; width: 216px; }
+.card .asm-level p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+.th-l { display: inline-flex; align-items: center; }
+.asm-table.svc th, .asm-table.svc td { padding: 4px 16px 4px 0; }
+.asm-table.svc tbody th { font-weight: 400; color: var(--ink-2); }
+.asm-table.svc td { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asm-table.svc tr.credit th, .asm-table.svc tr.credit td { color: var(--ink-3); }
+
+.fixed { display: grid; margin: 10px 0 0; }
+.fixed div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+}
+.fixed dt { display: flex; align-items: center; color: var(--ink-2); }
+.fixed dd { margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+
+.asm-sources {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--panel-edge);
+  font-size: 12px;
+}
+.asm-sources summary { cursor: pointer; color: var(--accent); }
+.asm-sources ul { margin: 10px 0 0; padding-left: 16px; line-height: 1.6; color: var(--ink-3); }
+.asm-sources a { color: var(--ink-2); text-decoration: none; }
+.asm-sources a:hover { color: var(--ink); text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .money-cols { grid-template-columns: 1fr; }
+  .money li, .movers li { grid-template-columns: 130px 1fr 46px; }
+  .movers li { grid-template-columns: 1fr 96px; }
+  .movers .mv-track { grid-column: 1 / -1; grid-row: 2; }
+  .asm-level { flex-wrap: wrap; }
+}
+
+.title .src { margin-top: 10px; }
+
+@media (max-width: 860px) {
+  .title { max-height: calc(100vh - 250px); }
+  /* Opened on a phone, the switches come in front of the controls panel. */
+  .title:has(.est-body:not([hidden])) { z-index: 2; }
+}
+
+/* ---- balance sheet -------------------------------------------------------- */
+
+.asm-open + .bs-open { margin-top: 6px; }
+.card.bs { width: min(860px, calc(100vw - 32px)); }
+.card .bs-settings { margin-top: 8px; font-size: 11.5px; color: var(--ink-3); }
+.bs-figs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+.bs-figs div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border-top: 3px solid var(--panel-edge);
+  background: rgba(255, 255, 255, 0.04);
+}
+.bs-figs dt {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.bs-figs dd { margin: 0; font-size: 21px; font-weight: 640; font-variant-numeric: tabular-nums; }
+.bs-figs .cost { border-top-color: var(--warn); }
+.bs-figs .income { border-top-color: var(--good); }
+.bs-figs .gap dd { color: var(--warn); }
+.card .bs-note { margin-top: 10px; font-size: 12px; color: var(--ink-3); max-width: 72ch; }
+
+.bs-sec {
+  display: grid;
+  gap: 8px;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--panel-edge);
+  scroll-margin-top: 64px;
+}
+.bs-sec h2, .bs-sec h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-weight: 620;
+}
+.bs-sec h2 { font-size: 16px; }
+.bs-sec h3 { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); }
+.bs-sec h2 span, .bs-sec h3 span { font-variant-numeric: tabular-nums; }
+.card .bs-sec p { margin: 0; font-size: 12.5px; color: var(--ink-2); max-width: 72ch; }
+.card .bs-sec p.bs-note { color: var(--ink-3); font-size: 12px; }
+
+.bs-wrap { overflow-x: auto; min-width: 0; }
+.bs-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bs-table.wide { min-width: 640px; }
+.bs-table th, .bs-table td {
+  padding: 5px 10px 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+  vertical-align: top;
+  color: var(--ink-2);
+}
+.bs-table thead th {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom-color: var(--panel-edge);
+  white-space: nowrap;
+}
+.bs-table .n { text-align: right; white-space: nowrap; padding-right: 0; padding-left: 12px; color: var(--ink); }
+.bs-table td.how { font-size: 11.5px; color: var(--ink-3); font-weight: 400; }
+.bs-table.wide td:first-child { width: 30%; min-width: 190px; }
+.bs-table tr.grp td:not(.how) { color: var(--ink); font-weight: 600; }
+.bs-table tr.sub td:first-child { padding-left: 16px; }
+.bs-table tr.tot td { color: var(--ink); font-weight: 650; border-top: 1px solid var(--ink-3); border-bottom: 3px double var(--ink-3); }
+.bs-table tr.head td { padding-top: 14px; font-size: 13px; font-weight: 620; color: var(--ink); border-bottom-color: var(--panel-edge); }
+.bs-table tr.gapline td { padding-top: 10px; border-bottom: 0; font-size: 14px; font-weight: 650; color: var(--warn); }
+.bs-table .led-link { font-weight: 600; color: var(--ink); }
+.bs-est {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(224, 86, 46, 0.16);
+  color: #f08a6a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.bs-flags {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  max-width: 72ch;
+}
+.bs-flags b { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 720px) {
+  .bs-figs { grid-template-columns: 1fr; }
+}

@@ -42,17 +42,32 @@ export async function loadModel(manifest) {
   spec.fields.forEach((name, f) => {
     cols[name] = new Float32Array(buffer, 16 + f * n * 4, n);
   });
+  const ccfKind = new Uint8Array(buffer, 16 + nf * n * 4, n);
   return {
     n,
     cols,
-    ccfKind: new Uint8Array(buffer, 16 + nf * n * 4, n),
+    ccfKind,
     own: OWN_DIMS.map((d) => cols[`own_${d}`]),
     shared: SHARED_DIMS.map((d) => cols[`shared_${d}`]),
     defaults: spec.assumptions,
     meta: spec.meta,
     city: manifest.cost_model.model,
+    sum: sums(cols, ccfKind, n),
     priced: null,
   };
+}
+
+/** Citywide sums of the per-parcel sewer quantities, for cityTotals. */
+function sums(cols, ccfKind, n) {
+  const s = { pipeFt: 0, pipeFtIn: 0, accounts: 0, accountsBy: [0, 0, 0], count: [0, 0, 0] };
+  for (let i = 0; i < n; i++) {
+    s.pipeFt += cols.pipe_ft[i];
+    s.pipeFtIn += cols.pipe_ft_in[i];
+    s.accounts += cols.fee_accounts[i];
+    s.accountsBy[ccfKind[i]] += cols.fee_accounts[i];
+    s.count[ccfKind[i]] += cols.fee_ccf_count[i];
+  }
+  return s;
 }
 
 // ---- values -----------------------------------------------------------------
@@ -126,9 +141,12 @@ function sewerFee(A, accounts, count, kind) {
     + count * usage * get(A, "sewer/fees/flow_charge_per_ccf"));
 }
 
-function pipeRenewal(A, ft, ftIn) {
-  return (ft * get(A, "sewer/pipe/cost_base_per_ft") + ftIn * get(A, "sewer/pipe/cost_per_inch_diameter"))
+export function pipeRenewal(A, ft, ftIn) {
+  const replace = (ft * get(A, "sewer/pipe/cost_base_per_ft") + ftIn * get(A, "sewer/pipe/cost_per_inch_diameter"))
     / get(A, "sewer/pipe/service_life_years");
+  const line = ftIn * get(A, "sewer/pipe/lining_cost_per_inch_diameter") / get(A, "sewer/pipe/lining_life_years");
+  const lined = get(A, "sewer/pipe/lined_percent") / 100;
+  return (1 - lined) * replace + lined * line;
 }
 
 function facilitiesTotal(A) {
@@ -152,6 +170,44 @@ function sewerPool(A, mains, feesTotal) {
     facilities: inCity * facilitiesTotal(A),
   };
   return { total: Object.values(parts).reduce((a, b) => a + b, 0), clean, inCity, parts };
+}
+
+/** Street money that is not property tax, and the share of every street's cost it pays. */
+function streetCredit(A, streetTotal) {
+  const other = itemsTotal(get(A, "streets/other_street_funding/items"));
+  return { other, share: streetTotal > 0 ? Math.min(other / streetTotal, 1) : 0 };
+}
+
+/**
+ * Citywide totals under A without touching a parcel. Every price is linear in
+ * the quantities, so the sum over parcels is the price of the summed
+ * quantities: cheap enough to run for every cost estimate level at once.
+ */
+export function cityTotals(model, A) {
+  const { city, sum } = model;
+  const r = streetRates(A, laneFt(city.city_q));
+  const [pavement, upkeep, assets] = streetParts(city.city_q, r);
+  const streets = pavement + upkeep + assets;
+  let fees = 12 * sum.accounts * get(A, "sewer/fees/customer_charge_monthly");
+  USAGE.forEach((u, k) => {
+    fees += 12 * sum.count[k] * get(A, `sewer/usage_ccf_per_month/${u}`) * get(A, "sewer/fees/flow_charge_per_ccf");
+  });
+  const sp = sewerPool(A, city.mains, fees);
+  const localRenewal = pipeRenewal(A, sum.pipeFt, sum.pipeFtIn);
+  const localClean = sum.pipeFt * sp.clean;
+  const local = localRenewal + localClean;
+  const p = sp.parts;
+  const credit = streetCredit(A, streets);
+  return {
+    streets, pavement, upkeep, assets, fees,
+    sewer: local + sp.total,
+    mains: local + p.large_mains + p.unfronted_mains + p.trunk_lines + p.mains_off_street,
+    plants: p.operations + p.facilities,
+    otherStreet: credit.other,
+    streetCredit: credit.share,
+    // The parts, for the balance sheet.
+    localRenewal, localClean, sewerParts: p, clean: sp.clean, inCity: sp.inCity,
+  };
 }
 
 // ---- the whole city -----------------------------------------------------------
@@ -204,7 +260,11 @@ export function priceAll(model, A, data) {
   }
 
   const [pavement, upkeep, assets] = streetParts(city.city_q, r);
-  Object.assign(totals, { pavement, upkeep, assets, sewerPool: sp.total, inCity: sp.inCity });
+  const credit = streetCredit(A, totals.streetsShared);
+  Object.assign(totals, {
+    pavement, upkeep, assets, sewerPool: sp.total, inCity: sp.inCity,
+    otherStreet: credit.other, streetCredit: credit.share,
+  });
   model.priced = { A, r, pool, sewer: sp, totals };
   return totals;
 }
@@ -250,12 +310,14 @@ export function explain(model, data, i, sharedArterials) {
       otherSignals: q[SIG_O], otherSignalRate: r.asset[SIG_O],
       assets,
       frontage: data.frontage[i], poolRate, pooled: data.frontage[i] * poolRate,
+      creditShare: totals.streetCredit,
     },
     sewer: {
       pipeFt: ft,
       diameter: ft > 0 ? ftIn / ft : 0,
       renewal: pipeRenewal(A, ft, ftIn),
       renewalRate: ft > 0 ? pipeRenewal(A, ft, ftIn) / ft : 0,
+      lined: get(A, "sewer/pipe/lined_percent"),
       cleanRate: sewer.clean,
       cleaning: ft * sewer.clean,
       fee,

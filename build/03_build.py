@@ -14,6 +14,7 @@ Output: data/out/parcels.bin, data/out/attrs.json, data/out/manifest.json
 """
 
 import array
+import csv
 import json
 import math
 import os
@@ -28,6 +29,7 @@ COST_SUMMARY = os.path.join(ROOT, "data", "interim", "cost_summary.json")
 LEVIES = os.path.join(ROOT, "config", "levies.json")
 ASSUMPTIONS = os.path.join(ROOT, "config", "assumptions.json")
 PARAMETERS = os.path.join(ROOT, "config", "parameters.json")
+BUDGET = os.path.join(ROOT, "config", "budget.csv")
 OUTDIR = os.path.join(ROOT, "data", "out")
 
 # Per-parcel quantities the map re-prices when an assumption is edited, in
@@ -226,6 +228,54 @@ def prepare(rings, tol):
             continue
         outers[outers.index(target)] = bridge_hole(target, hole)
     return outers
+
+
+def levy_split(district):
+    """[total, city, schools, county, other] per $100 from a district's funds."""
+    split = [district["consolidated"], 0.0, 0.0, 0.0, 0.0]
+    for fund, rate in district["funds"].items():
+        if fund.startswith("OMAHA CITY"):
+            k = 1
+        elif fund.startswith(("SCHOOL", "EDUCATION SERV", "LC ")):
+            k = 2
+        elif fund.startswith(("COUNTY", "CITY COUNTY BLD")):
+            k = 3
+        else:
+            k = 4
+        split[k] += rate
+    return [round(v, 5) for v in split]
+
+
+def check_parameters(meta, assumptions):
+    """Every value the map's Assumptions panel edits, and every value a cost
+    estimate level sets, must exist in assumptions.json as a number."""
+    def get(path):
+        v = assumptions
+        for k in path.split("/"):
+            v = v[k]
+        return v
+
+    paths = []
+    for g in meta["groups"]:
+        if "table" in g:
+            paths += [c["path"].replace("{row}", r) for r in g["table"]["rows"] for c in g["table"]["cols"]]
+        paths += [p["path"] for p in g.get("params", [])]
+        for level in g.get("quick", {}).get("levels", []):
+            paths += list(level.get("values", {}))
+    for p in paths:
+        try:
+            v = get(p)
+        except (KeyError, TypeError):
+            raise SystemExit(f"parameters.json: {p} is not in assumptions.json")
+        if not isinstance(v, (int, float)):
+            raise SystemExit(f"parameters.json: {p} is not a number in assumptions.json")
+    for g in meta["groups"]:
+        for k in ("info", "about"):
+            for item in [g] + g.get("params", []) + g.get("table", {}).get("cols", []):
+                for note in item.get(k, []):
+                    for s in note.get("sources", []):
+                        if s not in meta["sources"]:
+                            raise SystemExit(f"parameters.json: unknown source {s}")
 
 
 def main():
@@ -480,6 +530,14 @@ def main():
         with open(PARAMETERS) as f:
             meta = json.load(f)
         meta.pop("_", None)
+        check_parameters(meta, assumptions)
+        # Shown read-only beside the editable values, so every input to the
+        # map can be seen from it.
+        with open(BUDGET) as f:
+            meta["budget"] = [
+                {k: (float(v) if k == "amount" else v) for k, v in row.items() if k != "note"}
+                for row in csv.DictReader(l for l in f if not l.startswith("#"))
+            ]
         model = {
             "file": "model.bin",
             "fields": [name for name, _, _ in MODEL_FIELDS],
@@ -500,6 +558,13 @@ def main():
         "total_acres": total_acres,
         "estimated_city_property_tax": total_assessed * city_levy,
         "class_names": CLASS_NAMES,
+        # Each district's whole levy per $100, as [total, city, schools, county,
+        # other], so the inspector can show the city's tax as part of the bill
+        # the assessor shows.
+        "district_levies": {
+            code: levy_split(levies["districts"][code])
+            for code in sorted(keep_districts) if code in levies["districts"]
+        },
         "cost_model": cost_summary,
         "model": model,
         "flags": {"tif": FLAG_TIF, "exempt": FLAG_EXEMPT},

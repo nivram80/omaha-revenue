@@ -36,6 +36,7 @@ Output: data/interim/costs.ndjson, one row per parcel.
 
 import csv
 import json
+from array import array
 import math
 import os
 import sys
@@ -141,7 +142,8 @@ class EdgeGrid:
         return False
 
     def nearest(self, px, py):
-        """Nearest street within reach, as (segment, distance along segment, bulb).
+        """Nearest street within reach, as (segment, distance along segment,
+        bulb, side, distance from the centerline).
 
         Returning the arc position is what makes honest frontage possible: a
         parcel's frontage is the span of street its footprint covers, not the
@@ -150,6 +152,9 @@ class EdgeGrid:
         bulb is None, or the (x, y) of a dead end the point lies beyond. Every
         such point projects to the same arc position - the end of the line - so
         the caller measures those by angle around the dead end instead.
+
+        side is +1 or -1 for which side of the street the point is on, so lots
+        across the street from each other are never compared.
         """
         c = self.cell
         gx, gy = int(math.floor(px / c)), int(math.floor(py / c))
@@ -176,7 +181,8 @@ class EdgeGrid:
                         bulb = None
                         if reach is not None:
                             bulb = (ax, ay) if end == 0 else (bx, by)
-                        best = (seg, arc + t * math.sqrt(den), bulb)
+                        side = 1 if ex * (py - ay) - ey * (px - ax) >= 0 else -1
+                        best = (seg, arc + t * math.sqrt(den), bulb, side, math.sqrt(d2))
         return best
 
     def nearest_segment(self, px, py, reach, rank):
@@ -428,6 +434,9 @@ def main():
     bulb_min_radius = assumptions["frontage"]["bulb_min_radius_ft"]
 
     parcels = []
+    # (segment, side) -> (arc, distance, parcel index) of every boundary sample
+    # that reached a straight stretch of street.
+    fronts = {}
     seg_front = defaultdict(float)
     seg_bulb = defaultdict(float)
     no_frontage = 0
@@ -447,7 +456,9 @@ def main():
             # the boundary length near it: a shallow lot's side lines also sit
             # within the offset, and counting them inflated total frontage to
             # 3.22x the street length (it should close at ~2x, both kerbs).
-            span = {}
+            # Samples along straight streets wait for the occlusion test after
+            # this loop; dead ends are measured around the bulb here.
+            pid = len(parcels)
             # Points beyond a dead end, as (angle, distance) about it.
             bulbs = defaultdict(list)
             for ring in rec["rings"]:
@@ -464,20 +475,20 @@ def main():
                         hit = grid.nearest(x, y)
                         if hit is None:
                             continue
-                        seg, arc, bulb = hit
+                        seg, arc, bulb, side, d = hit
                         if bulb is not None:
                             dx, dy = x - bulb[0], y - bulb[1]
                             bulbs[(seg, bulb)].append(
                                 (math.atan2(dy, dx), math.hypot(dx, dy)))
                             continue
-                        lo, hi = span.get(seg, (arc, arc))
-                        span[seg] = (min(lo, arc), max(hi, arc))
+                        g = fronts.get((seg, side))
+                        if g is None:
+                            g = fronts[(seg, side)] = (array("d"), array("d"), array("l"))
+                        g[0].append(arc)
+                        g[1].append(d)
+                        g[2].append(pid)
 
             hits = {}
-            for seg, (lo, hi) in span.items():
-                ft = min(hi - lo, seg_len[seg])
-                if ft > 0:
-                    hits[seg] = ft
             bulb_ft = 0.0
             for (seg, _), samples in bulbs.items():
                 ft = bulb_frontage(samples, bulb_min_radius)
@@ -487,18 +498,18 @@ def main():
                     bulb_ft += ft
             if bulb_ft > 0:
                 on_bulb += 1
-            frontage = sum(hits.values())
-            if frontage <= 0:
-                no_frontage += 1
-            for seg, ft in hits.items():
-                seg_front[seg] += ft
 
             pin = rec.get("Parcel_ID") or ""
             cls = CLASS_BY_TYPE.get((rec.get("Property_Parcel_Type") or "").strip(), "Other")
             account, bldg_sf, n_bldgs = acct.get(pin, ("", 0.0, 1.0))
             if bldg_sf <= 0:
                 bldg_sf = float(rec.get("ImpSF") or 0)
-            points = addr.get(pin, 0)
+            # Vacant lots carry address points too, and so do the land-only
+            # strips beside row houses, so points count as dwellings only where
+            # the assessor has a building. Otherwise a $1,900 strip beside a
+            # townhouse reads as three homes with three sewer bills.
+            built = bldg_sf > 0 or float(rec.get("Improvements_Value") or 0) > 0
+            points = addr.get(pin, 0) if built else 0
 
             if account in single_accts:
                 n_units = max(1, points) if (points or bldg_sf > 0) else 0
@@ -543,14 +554,61 @@ def main():
                 "units": n_units,
                 "residents": residents,
                 "employees": employees,
-                "frontage_ft": frontage,
+                "frontage_ft": 0.0,  # set by the occlusion test below
                 "bulb_ft": bulb_ft,
-                "hits": dict(hits),
+                "hits": hits,
                 "fee_accounts": float(accounts),
                 "fee_ccf_count": float(ccf_count),
                 "fee_ccf_kind": ccf_kind,
                 "sewer_fee": pricing.sewer_fee(assumptions, accounts, ccf_count, ccf_kind),
             })
+
+    # A parcel fronts a street only where no other parcel stands between it
+    # and the street. Arterials reach 88-105 ft for their wide rights-of-way,
+    # so without this the lots behind a corner lot - 75 ft back, with the corner
+    # lot in between - were charged for the side street too, each taking a
+    # share of it from the corner lot. Along each side of each street, a sample
+    # counts only if no other parcel has one within occlude_window_ft of it
+    # along the street that sits more than occlude_depth_ft closer. A lot line
+    # nearer the centerline than occlude_min_ft would be in the pavement, so it
+    # means the centerline is drawn off the street there: it hides nothing.
+    window = assumptions["frontage"]["occlude_window_ft"]
+    depth = assumptions["frontage"]["occlude_depth_ft"]
+    floor = assumptions["frontage"]["occlude_min_ft"]
+    spans = [{} for _ in parcels]
+    samples = hidden = 0
+    for (seg, _), (arcs, dists, pids) in fronts.items():
+        order = sorted(range(len(arcs)), key=arcs.__getitem__)
+        lo = 0
+        for i in order:
+            a, d, pid = arcs[i], dists[i], pids[i]
+            samples += 1
+            while arcs[order[lo]] < a - window:
+                lo += 1
+            j = lo
+            behind = False
+            while j < len(order) and arcs[order[j]] <= a + window:
+                o = order[j]
+                if pids[o] != pid and floor <= dists[o] < d - depth:
+                    behind = True
+                    break
+                j += 1
+            if behind:
+                hidden += 1
+                continue
+            s0, s1 = spans[pid].get(seg, (a, a))
+            spans[pid][seg] = (min(s0, a), max(s1, a))
+    for p, span in zip(parcels, spans):
+        for seg, (s0, s1) in span.items():
+            ft = min(s1 - s0, seg_len[seg])
+            if ft > 0:
+                p["hits"][seg] = p["hits"].get(seg, 0.0) + ft
+        p["frontage_ft"] = sum(p["hits"].values())
+        if p["frontage_ft"] <= 0:
+            no_frontage += 1
+        for seg, ft in p["hits"].items():
+            seg_front[seg] += ft
+    print(f"  {hidden:,} of {samples:,} street samples sit behind another parcel", flush=True)
 
     print(f"  {len(parcels):,} parcels, {no_frontage:,} with no street within reach "
           f"({100*no_frontage/max(len(parcels),1):.1f}%), {on_bulb:,} measured around "
@@ -756,6 +814,10 @@ def main():
     # above, not this.
     tax_to_infrastructure = buckets.pop("frontage", 0.0)
     service_total = sum(buckets.values())
+    # Fuel and wheel taxes and the sales-tax share of General Fund street
+    # spending pay the same share of every street's cost (pricing.street_credit).
+    street_total = sum(p["c_frontage"] for p in parcels)
+    street_credit = pricing.street_credit(assumptions, street_total)
 
     for p in parcels:
         parts = {"frontage": p["c_frontage"]}
@@ -773,10 +835,11 @@ def main():
         p["c_people"] = parts.get("people", 0.0) + parts.get("residents", 0.0)
         p["c_flat"] = parts.get("parcels", 0.0) + parts.get("acres", 0.0)
         p["revenue"] = p["assessed"] * city_levy
-        p["net"] = p["revenue"] + p["sewer_fee"] - p["cost_total"] - p["c_sewer"]
+        p["street_credit"] = street_credit * p["c_frontage"]
+        p["net"] = (p["revenue"] + p["sewer_fee"] + p["street_credit"]
+                    - p["cost_total"] - p["c_sewer"])
 
     # ---- report + write -----------------------------------------------------
-    street_total = sum(p["c_frontage"] for p in parcels)
     sewer_cost = sum(p["c_sewer"] for p in parcels)
     bulb_miles = sum(seg_bulb.values()) / 5280
     fronted_miles = sum(seg_len[s] for s in seg_q if seg_front.get(s, 0.0) > 0) / 5280
@@ -803,6 +866,8 @@ def main():
     print(f"  assessed           ${assessed_total/1e9:,.1f}B")
     print(f"  property tax       ${property_tax/1e6:,.1f}M, of which "
           f"${tax_to_infrastructure/1e6:,.1f}M funds infrastructure")
+    print(f"  other street money ${street_credit * street_total/1e6:,.1f}M: "
+          f"{100 * street_credit:.1f}% of every street's cost")
     print(f"  service cost       ${service_total/1e6:,.1f}M  "
           f"(GF x {gf_share:.4f} + levy funds)")
     print(f"  citywide net       ${sum(p['net'] for p in parcels)/1e6:,.1f}M")
@@ -843,6 +908,7 @@ def main():
                 "residents": round(p["residents"], 2),
                 "employees": round(p["employees"], 2),
                 "revenue": round(p["revenue"], 2),
+                "street_credit": round(p["street_credit"], 2),
                 "cost_total": round(p["cost_total"], 2),
                 "net": round(p["net"], 2),
                 "parts": {k: round(v, 2) for k, v in p["cost_parts"].items()},
@@ -855,7 +921,8 @@ def main():
     # group today. Services cost exactly what property tax gives them, so that
     # basis balances; streets and sewers cost what they cost, so any gap shows
     # up on the bases that include them. Sewer is not property tax: a basis
-    # that includes it credits the sewer bill in full.
+    # that includes it credits the sewer bill in full, and one that includes
+    # streets credits the street money that is not property tax.
     svc_groups = {
         "frontage": service_buckets.get("frontage", 0.0),
         "people": service_buckets.get("people", 0.0) + service_buckets.get("residents", 0.0),
@@ -879,17 +946,16 @@ def main():
         b["cost"] = sum(pot_cost[k] for k in b["pots"])
         b["tax_revenue"] = property_tax * b["credit"]
         b["sewer_revenue"] = sewer_fees if "sewer" in b["pots"] else 0.0
-        b["revenue"] = b["tax_revenue"] + b["sewer_revenue"]
+        b["street_revenue"] = street_credit * street_total if "frontage" in b["pots"] else 0.0
+        b["revenue"] = b["tax_revenue"] + b["sewer_revenue"] + b["street_revenue"]
         b["net"] = b["revenue"] - b["cost"]
 
     print("\n  cost bases:")
     for name, b in bases.items():
-        print("    %-15s credit %.3f of tax + $%5.1fM sewer fees  ->  $%6.1fM revenue "
-              "vs $%6.1fM cost  net $%+7.1fM" % (
-                  name, b["credit"], b["sewer_revenue"] / 1e6, b["revenue"] / 1e6,
-                  b["cost"] / 1e6, b["net"] / 1e6))
-
-    other = st["other_street_funding"]
+        print("    %-15s credit %.3f of tax + $%5.1fM sewer fees + $%5.1fM street money"
+              "  ->  $%6.1fM revenue vs $%6.1fM cost  net $%+7.1fM" % (
+                  name, b["credit"], b["sewer_revenue"] / 1e6, b["street_revenue"] / 1e6,
+                  b["revenue"] / 1e6, b["cost"] / 1e6, b["net"] / 1e6))
     summary = {
         "bases": bases,
         "service_groups": svc_groups,
@@ -914,9 +980,10 @@ def main():
             "fronted_miles": fronted_miles,
             "unfronted_miles": unfronted_miles,
             "tax_credited": tax_to_infrastructure,
-            # Restricted street money that is not property tax, so not credited
-            # to any parcel: reported so the shortfall can be read against it.
-            "other_funding": items_total(other),
+            # Street money that is not property tax, credited pro rata to
+            # every street's cost.
+            "other_funding": items_total(st["other_street_funding"]["items"]),
+            "credit_share": street_credit,
         },
         "sewer": {
             "enabled": sewer_cfg["enabled"],

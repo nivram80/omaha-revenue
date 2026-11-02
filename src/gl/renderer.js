@@ -1,7 +1,8 @@
 // WebGL2 renderer: extruded parcel prisms over a translucent ground plane.
 //
 // No 3D library. The scene is one mesh per spatial cell, drawn with a single
-// indexed call each, plus a full-screen ground quad. Parcel height and colour
+// indexed call each, plus a full-screen ground quad and, seen from above, the
+// footprints of the parcels that hang below it. Parcel height and colour
 // come from a texture keyed by parcel index, so changing the metric is a 1.3 MB
 // upload rather than a geometry rebuild.
 //
@@ -21,10 +22,11 @@ uniform vec2 uOrigin;      // cell origin, already scene-relative
 uniform vec2 uQuant;       // metres per quantisation unit
 uniform mat4 uViewProj;
 uniform sampler2D uMetric; // r = height fraction, g = colour position
-uniform float uHeight;     // world metres at height fraction 1.0
+uniform float uHeight;     // world metres at height fraction 1.0; negative when flipped
 uniform int uMetricW;
 uniform int uSelected;     // parcel to highlight, -1 for none
 uniform int uXray;         // 1: draw only the selected parcel
+uniform int uFootprint;    // 1: draw only below-zero parcels, flat on the ground
 
 out vec3 vWorld;
 out float vColorT;
@@ -35,17 +37,18 @@ void main() {
   int id = int(aParcel);
   vec2 met = texelFetch(uMetric, ivec2(id % uMetricW, id / uMetricW), 0).rg;
   vSelected = id == uSelected ? 1.0 : 0.0;
-  if (uXray == 1 && id != uSelected) {
+  if ((uXray == 1 && id != uSelected) || (uFootprint == 1 && met.r * uHeight >= 0.0)) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside the clip volume
     return;
   }
 
   vec2 p = uOrigin + aXY * uQuant;
-  float z = aTop * met.r * uHeight;
+  // A footprint squashes the prism to z = 0: walls vanish, the cap remains.
+  float z = uFootprint == 1 ? 0.0 : aTop * met.r * uHeight;
 
   vWorld = vec3(p, z);
   vColorT = met.g;
-  vTop = aTop;
+  vTop = uFootprint == 1 ? 1.0 : aTop;
   gl_Position = uViewProj * vec4(p, z, 1.0);
 }`;
 
@@ -187,6 +190,10 @@ export class Renderer {
     this.lightDir = [0.45, -0.62, 0.65];
     this.selected = -1;
     this.xray = false;
+    this.footprint = false;
+    // Flipped, a signed metric's negatives rise and its positives hang below,
+    // so losses can be read from above with north up.
+    this.flip = false;
 
     this.camera = {
       target: [0, 0, 0],
@@ -390,7 +397,19 @@ export class Renderer {
 
     this.drawPrisms(this.prism, false);
     this.drawGround();
+    if (this.eye()[2] > 0) this.drawFootprints();
     if (this.selected >= 0) this.drawSelectedXray();
+  }
+
+  /**
+   * From above, a parcel that hangs under the ground plane is dimmed nearly to
+   * the background. Draw its footprint on top of the plane in its own colour,
+   * so it reads from above too; orbit under, or flip, to see its depth.
+   */
+  drawFootprints() {
+    this.footprint = true;
+    this.drawPrisms(this.prism, false);
+    this.footprint = false;
   }
 
   /** The selected parcel again, faintly, through anything standing in front. */
@@ -410,7 +429,7 @@ export class Renderer {
     const gl = this.gl;
     gl.useProgram(prog);
     gl.uniformMatrix4fv(u.uViewProj, false, this.viewProj);
-    gl.uniform1f(u.uHeight, this.height);
+    gl.uniform1f(u.uHeight, this.flip ? -this.height : this.height);
     gl.uniform1i(u.uMetricW, this.metricW);
 
     gl.activeTexture(gl.TEXTURE0);
@@ -424,6 +443,7 @@ export class Renderer {
       gl.uniform3fv(u.uLightDir, this.lightDir);
       gl.uniform1i(u.uSelected, this.selected);
       gl.uniform1i(u.uXray, this.xray ? 1 : 0);
+      gl.uniform1i(u.uFootprint, this.footprint ? 1 : 0);
       gl.uniform1f(u.uAlpha, this.xray ? 0.45 : 1);
     }
 

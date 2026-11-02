@@ -53,16 +53,17 @@ const MIN_ACRES = 0.01;
  *
  * Services cost what property tax gives them, so that basis balances. Streets
  * and sewers cost what they take to keep up, whatever is spent on them today,
- * so any citywide gap lands on the bases that include them.
+ * so any citywide gap lands on the bases that include them. Those bases also
+ * credit the street money that is not property tax (streetMoneyUnder).
  */
 export const BASES = {
   full: {
     label: "Everything tax and sewer fees buy",
     short: "Full cost basis",
     blurb:
-      "City property tax and the estimated sewer bill, against what the " +
-      "parcel's streets and sewers cost to keep up plus its share of police, " +
-      "fire, parks and general government. This is the whole bill.",
+      "What the parcel pays the city in property tax, sewer fees and its share " +
+      "of street taxes, against what its streets, sewers and services cost to " +
+      "keep up. This is the whole bill.",
     note:
       "Services balance citywide by construction, so any citywide loss here " +
       "is the street and sewer gap. The people-driven share means per acre " +
@@ -73,9 +74,8 @@ export const BASES = {
     short: "Infrastructure basis",
     blurb:
       "The share of property tax that goes to streets and sewers today, plus " +
-      "the sewer bill, against what the parcel's streets and sewers cost to " +
-      "keep up over their lives: rebuilding, resurfacing, upkeep, bridges, " +
-      "signals, pipes and plants. This is the question value-per-acre " +
+      "sewer fees and street taxes, against what the parcel's streets and " +
+      "sewers cost to keep up over their lives. The question value-per-acre " +
       "analysis usually poses.",
     note:
       "Police, fire and general government are excluded on both sides, so " +
@@ -114,8 +114,16 @@ export function sewerFeeUnder(d, i) {
   return d.basis.pots.includes("sewer") ? d.sewerFee[i] : 0;
 }
 
+/**
+ * Fuel and wheel taxes and the sales-tax share of street spending: no parcel
+ * pays them, so they cover the same share of every street's cost.
+ */
+export function streetMoneyUnder(d, i) {
+  return d.basis.pots.includes("frontage") ? d.streetCredit * d.cFrontage[i] : 0;
+}
+
 export function revenueUnder(d, i) {
-  return taxUnder(d, i) + sewerFeeUnder(d, i);
+  return taxUnder(d, i) + sewerFeeUnder(d, i) + streetMoneyUnder(d, i);
 }
 
 /** Net dollars a year for a parcel, under the active basis. */
@@ -131,9 +139,9 @@ export const METRICS = {
     diverging: true,
     needsCost: true,
     blurb:
-      "City property tax and sewer bill the parcel pays, minus what its " +
-      "streets and sewers cost to keep up and its share of any services in " +
-      "the basis. Above the plane the parcel carries itself; below it, the " +
+      "City property tax, sewer bill and street money credited to the parcel, " +
+      "minus what its streets and sewers cost to keep up and its share of any " +
+      "services in the basis. Above the plane the parcel carries itself; below it, the " +
       "rest of the city, or borrowing, makes up the difference.",
     compute: (d, i) => (d.acres[i] >= MIN_ACRES ? netUnder(d, i) / d.acres[i] : 0),
   },

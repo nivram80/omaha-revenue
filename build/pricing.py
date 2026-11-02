@@ -78,6 +78,14 @@ def lane_ft(q):
     return sum(q[k] for k in LANE_DIMS)
 
 
+def street_credit(A, street_total):
+    """Share of every street's cost paid by street money that is not property
+    tax (fuel and wheel taxes, the sales-tax share of General Fund street
+    spending). No parcel pays it directly, so it covers each street pro rata."""
+    other = items_total(get(A, "streets/other_street_funding/items"))
+    return min(other / street_total, 1.0) if street_total > 0 else 0.0
+
+
 # ---- sewer ------------------------------------------------------------------
 
 def sewer_fee(A, accounts, ccf_count, kind):
@@ -90,11 +98,15 @@ def sewer_fee(A, accounts, ccf_count, kind):
 
 
 def pipe_renewal(A, ft, ft_in):
-    """Replacement of pipe over its life: base + per-inch x diameter, per foot,
-    so a run of mains prices from its feet and its feet x inches."""
+    """Renewal of pipe over its life, a blend of open-cut replacement (base +
+    per-inch x diameter, per foot) and lining from inside (per-inch x
+    diameter), so a run of mains prices from its feet and its feet x inches."""
     p = "sewer/pipe/"
-    return ((ft * get(A, p + "cost_base_per_ft") + ft_in * get(A, p + "cost_per_inch_diameter"))
-            / get(A, p + "service_life_years"))
+    replace = ((ft * get(A, p + "cost_base_per_ft") + ft_in * get(A, p + "cost_per_inch_diameter"))
+               / get(A, p + "service_life_years"))
+    line = ft_in * get(A, p + "lining_cost_per_inch_diameter") / get(A, p + "lining_life_years")
+    lined = get(A, p + "lined_percent") / 100
+    return (1 - lined) * replace + lined * line
 
 
 def cleaning_rate(A, total_ft):
